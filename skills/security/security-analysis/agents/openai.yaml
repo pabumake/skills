@@ -1,0 +1,4 @@
+interface:
+  display_name: "Security Analysis"
+  short_description: "Apply precise evidence and safety discipline"
+  default_prompt: "Use $security-analysis to assess this evidence and separate facts from inference."

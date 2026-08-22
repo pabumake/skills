@@ -1,18 +1,18 @@
 ---
 name: ste
-description: Rewrite or generate output using ASD-STE100 Simplified Technical English rules — shorter sentences, approved vocabulary, active voice, no AI tells. Invoke with /ste.
+description: Rewrite or generate output using ASD-STE100 Simplified Technical English rules — shorter sentences, approved vocabulary, active voice, and no AI tells.
 ---
 
-# STE — Simplified Technical English
+# STE: Simplified Technical English
 
 Apply ASD-STE100 Issue 9 rules to any text you write or rewrite this session.
 
 ## When to use
 
-- Rewrite existing output: `/ste rewrite <text or paste>`
-- Apply to all output for this session: `/ste on`
-- Disable: `/ste off`
-- Check a draft: `/ste check <text>`
+- Rewrite existing output: ask the agent to use `ste` to rewrite the text.
+- Apply it to all output: ask the agent to use `ste` for the session.
+- Disable it: ask the agent to stop using `ste`.
+- Check a draft: ask the agent to use `ste` to check the text.
 
 ## Rules
 

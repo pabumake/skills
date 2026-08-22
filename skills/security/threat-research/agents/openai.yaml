@@ -1,0 +1,4 @@
+interface:
+  display_name: "Threat Research"
+  short_description: "Research threats with controlled disclosure"
+  default_prompt: "Use $threat-research to research this threat question from primary sources."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Alert Investigation"
+  short_description: "Investigate and disposition security alerts"
+  default_prompt: "Use $alert-investigation to investigate this alert from the available evidence."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Detection Engineering"
+  short_description: "Design and validate precise security detections"
+  default_prompt: "Use $detection-engineering to turn this threat hypothesis into a testable detection."

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Ask Security"
+  short_description: "Choose the right defensive security workflow"
+  default_prompt: "Use $ask-security to choose the best workflow for this security task."
+policy:
+  allow_implicit_invocation: false
