@@ -1,6 +1,6 @@
 # Third-party notices
 
-## Diagnosing Bugs and security workflow adaptations
+## Matt Pocock engineering skill adaptations
 
 Portions of the skills in `skills/coding/` and `skills/security/` are adapted from [Matt Pocock's skills repository](https://github.com/mattpocock/skills/tree/5b15a47f2d7150f545fbcacbfe381787fc0230dc).
 

@@ -12,7 +12,13 @@ Personal agent skills for precise technical and defensive security work. Skills 
 
 ### Coding
 
+- [`code-review`](./skills/coding/code-review/SKILL.md): Review a fixed change for correctness, regressions, maintainability, test quality, and specification gaps.
+- [`codebase-design`](./skills/coding/codebase-design/SKILL.md): Design deep modules with small interfaces at clean seams.
 - [`diagnosing-bugs`](./skills/coding/diagnosing-bugs/SKILL.md): Diagnose hard bugs through a tight feedback loop and falsifiable hypotheses.
+- [`domain-modeling`](./skills/coding/domain-modeling/SKILL.md): Sharpen product language, scenarios, and durable technical decisions.
+- [`prototype`](./skills/coding/prototype/SKILL.md): Build throwaway logic or UI experiments that answer one design question.
+- [`tdd`](./skills/coding/tdd/SKILL.md): Implement behavior through small red-green test cycles.
+- [`technical-research`](./skills/coding/technical-research/SKILL.md): Research engineering decisions from primary sources and save cited findings.
 
 ### Security
 

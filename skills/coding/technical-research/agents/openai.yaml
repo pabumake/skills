@@ -1,0 +1,4 @@
+interface:
+  display_name: "Technical Research"
+  short_description: "Research engineering decisions from primary sources"
+  default_prompt: "Use $technical-research to answer this engineering question from primary sources and save the cited findings."

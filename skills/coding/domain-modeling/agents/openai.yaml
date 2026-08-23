@@ -1,0 +1,4 @@
+interface:
+  display_name: "Domain Modeling"
+  short_description: "Sharpen product language and durable decisions"
+  default_prompt: "Use $domain-modeling to define the concepts, scenarios, and durable decisions in this product area."
