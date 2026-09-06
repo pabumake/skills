@@ -7,10 +7,10 @@ import sys
 
 def main():
     if len(sys.argv) != 5:
-        print("usage: update_cline_mcp.py <settings_file> <server_name> <skills_root> <server_script>", file=sys.stderr)
+        print("usage: update_cline_mcp.py <settings_file> <server_name> <skills_roots> <server_script>", file=sys.stderr)
         sys.exit(1)
 
-    settings_file, server_name, skills_root, server_script = sys.argv[1:]
+    settings_file, server_name, skills_roots, server_script = sys.argv[1:]
 
     try:
         with open(settings_file, encoding="utf-8") as f:
@@ -24,7 +24,7 @@ def main():
     entry = {
         "command": "python3",
         "args": [server_script],
-        "env": {"SKILLS_ROOT": skills_root},
+        "env": {"SKILLS_ROOTS": skills_roots},
     }
 
     existing = data["mcpServers"].get(server_name)

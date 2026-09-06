@@ -4,7 +4,10 @@ import json
 import os
 import sys
 
-SKILLS_ROOT = os.environ.get("SKILLS_ROOT", "")
+# Colon-separated list of skill roots; falls back to single SKILLS_ROOT for
+# backward compatibility with existing Cline MCP entries written before this change.
+_roots_raw = os.environ.get("SKILLS_ROOTS", os.environ.get("SKILLS_ROOT", ""))
+SKILLS_ROOTS = [r for r in _roots_raw.split(":") if r and os.path.isdir(r)]
 
 TOOLS = [
     {
@@ -30,18 +33,17 @@ TOOLS = [
 
 
 def _skill_dirs():
-    """Yield (skill_name, skill_md_path) for all promoted skills."""
-    if not SKILLS_ROOT or not os.path.isdir(SKILLS_ROOT):
-        return
-    for root, dirs, files in os.walk(SKILLS_ROOT):
-        dirs.sort()
-        rel = os.path.relpath(root, SKILLS_ROOT)
-        category = rel.split(os.sep)[0] if rel != "." else ""
-        if category in ("in-progress", "deprecated"):
-            dirs.clear()
-            continue
-        if "SKILL.md" in files:
-            yield os.path.basename(root), os.path.join(root, "SKILL.md")
+    """Yield (skill_name, skill_md_path) for all promoted skills across all roots."""
+    for root in SKILLS_ROOTS:
+        for dirpath, dirs, files in os.walk(root):
+            dirs.sort()
+            rel = os.path.relpath(dirpath, root)
+            category = rel.split(os.sep)[0] if rel != "." else ""
+            if category in ("in-progress", "deprecated"):
+                dirs.clear()
+                continue
+            if "SKILL.md" in files:
+                yield os.path.basename(dirpath), os.path.join(dirpath, "SKILL.md")
 
 
 def _read_description(skill_md_path):
@@ -56,13 +58,12 @@ def _read_description(skill_md_path):
 
 def _find_skill_md(skill_name):
     """Return path to SKILL.md for skill_name, or None."""
-    real_root = os.path.realpath(SKILLS_ROOT)
+    real_roots = [os.path.realpath(r) for r in SKILLS_ROOTS]
     for name, md_path in _skill_dirs():
         if name == skill_name:
             real_md = os.path.realpath(md_path)
-            if not real_md.startswith(real_root + os.sep):
-                return None  # path traversal guard
-            return md_path
+            if any(real_md.startswith(rr + os.sep) for rr in real_roots):
+                return md_path
     return None
 
 
