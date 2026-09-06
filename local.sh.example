@@ -1,0 +1,7 @@
+# Copy this file to local.sh and edit — it is gitignored and never committed.
+#
+# EXTRA_SKILLS_ROOT: path to an additional skills directory to install alongside
+# the repo's own skills/ tree. Skills from both roots are merged; duplicate names
+# are a preflight error. Any directory layout using <skill-name>/SKILL.md works.
+#
+# EXTRA_SKILLS_ROOT="$HOME/Documents/my-work-skills/skills"
