@@ -201,10 +201,50 @@ install_for_target() {
     done
 }
 
+install_cline_mcp() {
+    local variant_name="$1"
+    local settings_file="$2"
+
+    echo ""
+    echo "target: $variant_name"
+    echo "  settings: $settings_file"
+
+    if [[ ! -f "$CLINE_MCP_UPDATE_SCRIPT" ]]; then
+        echo "  conflict: MCP update script not found at $CLINE_MCP_UPDATE_SCRIPT"
+        conflicts=$((conflicts + 1))
+        return
+    fi
+
+    local result
+    result="$(python3 "$CLINE_MCP_UPDATE_SCRIPT" \
+        "$settings_file" "$CLINE_MCP_SERVER_NAME" "$SKILLS_ROOT" "$CLINE_MCP_SERVER_SCRIPT" 2>&1)"
+    local exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        echo "  conflict: $result"
+        conflicts=$((conflicts + 1))
+        return
+    fi
+
+    case "$result" in
+        unchanged:*) echo "  unchanged: $CLINE_MCP_SERVER_NAME"; unchanged=$((unchanged + 1)) ;;
+        updated:*)   echo "  updated: $CLINE_MCP_SERVER_NAME";   updated=$((updated + 1))     ;;
+        linked:*)    echo "  linked: $CLINE_MCP_SERVER_NAME";    linked=$((linked + 1))        ;;
+    esac
+}
+
 has_codex=false
 has_claude=false
 has_opencode=false
 has_t3_code=false
+has_cline_vscode=false
+has_cline_vscodium=false
+
+CLINE_VSCODE_SETTINGS="${CLINE_VSCODE_SETTINGS:-$HOME/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json}"
+CLINE_VSCODIUM_SETTINGS="${CLINE_VSCODIUM_SETTINGS:-$HOME/Library/Application Support/VSCodium/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json}"
+CLINE_MCP_SERVER_NAME="skills"
+CLINE_MCP_SERVER_SCRIPT="$REPO_ROOT/mcp-server/skills_server.py"
+CLINE_MCP_UPDATE_SCRIPT="$REPO_ROOT/mcp-server/update_cline_mcp.py"
 
 command -v codex >/dev/null 2>&1 && has_codex=true
 command -v claude >/dev/null 2>&1 && has_claude=true
@@ -222,12 +262,17 @@ if command -v t3 >/dev/null 2>&1 \
     has_t3_code=true
 fi
 
+[[ -f "$CLINE_VSCODE_SETTINGS" ]] && has_cline_vscode=true
+[[ -f "$CLINE_VSCODIUM_SETTINGS" ]] && has_cline_vscodium=true
+
 echo "Discovered ${#skill_dirs[@]} promoted skill(s) under $SKILLS_ROOT"
 echo ""
 $has_codex && echo "detected: Codex" || echo "skipped: Codex (command not found)"
 $has_claude && echo "detected: Claude Code" || echo "skipped: Claude Code (command not found)"
 $has_opencode && echo "detected: OpenCode" || echo "skipped: OpenCode (command not found)"
 $has_t3_code && echo "detected: T3 Code" || echo "skipped: T3 Code (command or desktop app not found)"
+$has_cline_vscode   && echo "detected: Cline (VS Code)"   || echo "skipped: Cline (VS Code) (settings file not found)"
+$has_cline_vscodium && echo "detected: Cline (VSCodium)"  || echo "skipped: Cline (VSCodium) (settings file not found)"
 
 echo ""
 echo "Migrating repository-owned links from the old layout"
@@ -258,12 +303,21 @@ if $has_opencode && is_truthy "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}"; then
     install_for_target "OpenCode native fallback" "$OPENCODE_SKILLS_DIR"
 fi
 
+$has_cline_vscode   && install_cline_mcp "Cline (VS Code)"   "$CLINE_VSCODE_SETTINGS"
+$has_cline_vscodium && install_cline_mcp "Cline (VSCodium)"  "$CLINE_VSCODIUM_SETTINGS"
+
 if $has_t3_code; then
     echo ""
     echo "covered: T3 Code provider-compatible skill locations were linked above"
 fi
 
-if ! $has_codex && ! $has_claude && ! $has_opencode && ! $has_t3_code; then
+if $has_cline_vscode || $has_cline_vscodium; then
+    echo ""
+    echo "covered: Cline hot-reloads its MCP config — no restart needed."
+fi
+
+if ! $has_codex && ! $has_claude && ! $has_opencode && ! $has_t3_code \
+    && ! $has_cline_vscode && ! $has_cline_vscodium; then
     echo ""
     echo "No supported AI tools detected; nothing was linked."
 fi
