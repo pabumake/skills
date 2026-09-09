@@ -10,6 +10,11 @@ CLAUDE_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
 OPENCODE_BASE_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 OPENCODE_SKILLS_DIR="$OPENCODE_BASE_DIR/skills"
 
+# Load machine-local overrides (gitignored, never committed).
+# local.sh may set EXTRA_SKILLS_ROOT to add a private skills directory.
+EXTRA_SKILLS_ROOT=""
+[[ -f "$REPO_ROOT/local.sh" ]] && source "$REPO_ROOT/local.sh"
+
 skill_dirs=()
 skill_names=()
 skill_paths=()
@@ -22,46 +27,64 @@ is_truthy() {
     esac
 }
 
-while IFS= read -r skill_md; do
-    skill_dir="$(dirname "$skill_md")"
-    relative_path="${skill_dir#"$SKILLS_ROOT"/}"
-    category="${relative_path%%/*}"
+# Returns 0 if the symlink target path is owned by this repo or the extra root.
+is_repo_owned() {
+    local t="${1%/}"
+    [[ "$t" == "$REPO_ROOT"/* ]] && return 0
+    [[ -n "$EXTRA_SKILLS_ROOT" && "$t" == "$EXTRA_SKILLS_ROOT"/* ]] && return 0
+    return 1
+}
 
-    [[ "$category" == "in-progress" || "$category" == "deprecated" ]] && continue
+_discover_skills() {
+    local root="$1"
+    local skill_md skill_dir relative_path category skill_name declared_name duplicate existing_name
 
-    skill_name="$(basename "$skill_dir")"
-    declared_name="$(sed -n 's/^name:[[:space:]]*//p' "$skill_md" | head -n 1)"
-    declared_name="${declared_name#\"}"
-    declared_name="${declared_name%\"}"
-    declared_name="${declared_name#\'}"
-    declared_name="${declared_name%\'}"
+    while IFS= read -r skill_md; do
+        skill_dir="$(dirname "$skill_md")"
+        relative_path="${skill_dir#"$root"/}"
+        category="${relative_path%%/*}"
 
-    if [[ -z "$declared_name" ]]; then
-        echo "preflight error: $skill_md has no simple name field" >&2
-        preflight_errors=$((preflight_errors + 1))
-        continue
-    fi
-    if [[ "$declared_name" != "$skill_name" ]]; then
-        echo "preflight error: $skill_md declares '$declared_name' but its directory is '$skill_name'" >&2
-        preflight_errors=$((preflight_errors + 1))
-        continue
-    fi
+        [[ "$category" == "in-progress" || "$category" == "deprecated" ]] && continue
 
-    duplicate=false
-    for existing_name in "${skill_names[@]-}"; do
-        if [[ -n "$existing_name" && "$existing_name" == "$skill_name" ]]; then
-            echo "preflight error: duplicate promoted skill name '$skill_name'" >&2
+        skill_name="$(basename "$skill_dir")"
+        declared_name="$(sed -n 's/^name:[[:space:]]*//p' "$skill_md" | head -n 1)"
+        declared_name="${declared_name#\"}"
+        declared_name="${declared_name%\"}"
+        declared_name="${declared_name#\'}"
+        declared_name="${declared_name%\'}"
+
+        if [[ -z "$declared_name" ]]; then
+            echo "preflight error: $skill_md has no simple name field" >&2
             preflight_errors=$((preflight_errors + 1))
-            duplicate=true
-            break
+            continue
         fi
-    done
-    $duplicate && continue
+        if [[ "$declared_name" != "$skill_name" ]]; then
+            echo "preflight error: $skill_md declares '$declared_name' but its directory is '$skill_name'" >&2
+            preflight_errors=$((preflight_errors + 1))
+            continue
+        fi
 
-    skill_dirs+=("$skill_dir")
-    skill_names+=("$skill_name")
-    skill_paths+=("$relative_path")
-done < <(find "$SKILLS_ROOT" -type f -name SKILL.md -print | sort)
+        duplicate=false
+        for existing_name in "${skill_names[@]-}"; do
+            if [[ -n "$existing_name" && "$existing_name" == "$skill_name" ]]; then
+                echo "preflight error: duplicate promoted skill name '$skill_name'" >&2
+                preflight_errors=$((preflight_errors + 1))
+                duplicate=true
+                break
+            fi
+        done
+        $duplicate && continue
+
+        skill_dirs+=("$skill_dir")
+        skill_names+=("$skill_name")
+        skill_paths+=("$relative_path")
+    done < <(find "$root" -type f -name SKILL.md -print | sort)
+}
+
+_discover_skills "$SKILLS_ROOT"
+if [[ -n "$EXTRA_SKILLS_ROOT" && -d "$EXTRA_SKILLS_ROOT" ]]; then
+    _discover_skills "$EXTRA_SKILLS_ROOT"
+fi
 
 if [[ $preflight_errors -ne 0 ]]; then
     echo "Preflight failed with $preflight_errors error(s); no links were changed." >&2
@@ -121,7 +144,7 @@ migrate_repo_links() {
 
         current_target="$(readlink "$link")"
         normalized_target="${current_target%/}"
-        [[ "$normalized_target" == "$REPO_ROOT"/* ]] || continue
+        is_repo_owned "$normalized_target" || continue
 
         skill_name="$(basename "$link")"
         if [[ "$target_kind" == "legacy" ]]; then
@@ -182,7 +205,7 @@ install_for_target() {
             if [[ "${current_target%/}" == "${skill_dir%/}" ]]; then
                 echo "  unchanged: $skill_name ($skill_path)"
                 unchanged=$((unchanged + 1))
-            elif [[ "${current_target%/}" == "$REPO_ROOT"/* ]]; then
+            elif is_repo_owned "${current_target%/}"; then
                 ln -sfn "$skill_dir" "$destination"
                 echo "  updated: $skill_name -> $skill_path"
                 updated=$((updated + 1))
@@ -201,10 +224,54 @@ install_for_target() {
     done
 }
 
+install_cline_mcp() {
+    local variant_name="$1"
+    local settings_file="$2"
+
+    echo ""
+    echo "target: $variant_name"
+    echo "  settings: $settings_file"
+
+    if [[ ! -f "$CLINE_MCP_UPDATE_SCRIPT" ]]; then
+        echo "  conflict: MCP update script not found at $CLINE_MCP_UPDATE_SCRIPT"
+        conflicts=$((conflicts + 1))
+        return
+    fi
+
+    local skills_roots_value="$SKILLS_ROOT"
+    [[ -n "$EXTRA_SKILLS_ROOT" && -d "$EXTRA_SKILLS_ROOT" ]] && \
+        skills_roots_value="$skills_roots_value:$EXTRA_SKILLS_ROOT"
+
+    local result
+    result="$(python3 "$CLINE_MCP_UPDATE_SCRIPT" \
+        "$settings_file" "$CLINE_MCP_SERVER_NAME" "$skills_roots_value" "$CLINE_MCP_SERVER_SCRIPT" 2>&1)"
+    local exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        echo "  conflict: $result"
+        conflicts=$((conflicts + 1))
+        return
+    fi
+
+    case "$result" in
+        unchanged:*) echo "  unchanged: $CLINE_MCP_SERVER_NAME"; unchanged=$((unchanged + 1)) ;;
+        updated:*)   echo "  updated: $CLINE_MCP_SERVER_NAME";   updated=$((updated + 1))     ;;
+        linked:*)    echo "  linked: $CLINE_MCP_SERVER_NAME";    linked=$((linked + 1))        ;;
+    esac
+}
+
 has_codex=false
 has_claude=false
 has_opencode=false
 has_t3_code=false
+has_cline_vscode=false
+has_cline_vscodium=false
+
+CLINE_VSCODE_SETTINGS="${CLINE_VSCODE_SETTINGS:-$HOME/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json}"
+CLINE_VSCODIUM_SETTINGS="${CLINE_VSCODIUM_SETTINGS:-$HOME/Library/Application Support/VSCodium/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json}"
+CLINE_MCP_SERVER_NAME="skills"
+CLINE_MCP_SERVER_SCRIPT="$REPO_ROOT/mcp-server/skills_server.py"
+CLINE_MCP_UPDATE_SCRIPT="$REPO_ROOT/mcp-server/update_cline_mcp.py"
 
 command -v codex >/dev/null 2>&1 && has_codex=true
 command -v claude >/dev/null 2>&1 && has_claude=true
@@ -222,12 +289,22 @@ if command -v t3 >/dev/null 2>&1 \
     has_t3_code=true
 fi
 
-echo "Discovered ${#skill_dirs[@]} promoted skill(s) under $SKILLS_ROOT"
+[[ -f "$CLINE_VSCODE_SETTINGS" ]] && has_cline_vscode=true
+[[ -f "$CLINE_VSCODIUM_SETTINGS" ]] && has_cline_vscodium=true
+
+echo "Discovered ${#skill_dirs[@]} promoted skill(s)"
 echo ""
 $has_codex && echo "detected: Codex" || echo "skipped: Codex (command not found)"
 $has_claude && echo "detected: Claude Code" || echo "skipped: Claude Code (command not found)"
 $has_opencode && echo "detected: OpenCode" || echo "skipped: OpenCode (command not found)"
 $has_t3_code && echo "detected: T3 Code" || echo "skipped: T3 Code (command or desktop app not found)"
+$has_cline_vscode   && echo "detected: Cline (VS Code)"   || echo "skipped: Cline (VS Code) (settings file not found)"
+$has_cline_vscodium && echo "detected: Cline (VSCodium)"  || echo "skipped: Cline (VSCodium) (settings file not found)"
+if [[ -n "$EXTRA_SKILLS_ROOT" ]]; then
+    [[ -d "$EXTRA_SKILLS_ROOT" ]] \
+        && echo "detected: extra skills root ($EXTRA_SKILLS_ROOT)" \
+        || echo "warning: EXTRA_SKILLS_ROOT set but not found ($EXTRA_SKILLS_ROOT)"
+fi
 
 echo ""
 echo "Migrating repository-owned links from the old layout"
@@ -258,12 +335,21 @@ if $has_opencode && is_truthy "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}"; then
     install_for_target "OpenCode native fallback" "$OPENCODE_SKILLS_DIR"
 fi
 
+$has_cline_vscode   && install_cline_mcp "Cline (VS Code)"   "$CLINE_VSCODE_SETTINGS"
+$has_cline_vscodium && install_cline_mcp "Cline (VSCodium)"  "$CLINE_VSCODIUM_SETTINGS"
+
 if $has_t3_code; then
     echo ""
     echo "covered: T3 Code provider-compatible skill locations were linked above"
 fi
 
-if ! $has_codex && ! $has_claude && ! $has_opencode && ! $has_t3_code; then
+if $has_cline_vscode || $has_cline_vscodium; then
+    echo ""
+    echo "covered: Cline hot-reloads its MCP config — no restart needed."
+fi
+
+if ! $has_codex && ! $has_claude && ! $has_opencode && ! $has_t3_code \
+    && ! $has_cline_vscode && ! $has_cline_vscodium; then
     echo ""
     echo "No supported AI tools detected; nothing was linked."
 fi
