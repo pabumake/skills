@@ -1,24 +1,24 @@
 # skills
 
-Personal agent skills for precise technical and defensive security work. Skills are organized by domain in the repository and installed as flat, individually linked skill folders for broad agent compatibility.
+Personal agent skills for technical and defensive security work. The repository owns the general and security skills. A pinned external baseline supplies the engineering workflow without keeping edited copies here.
 
 ## Catalog
 
 ### General
 
-- [`pbmk-skill-install`](./skills/general/pbmk-skill-install/SKILL.md): Install or update this repository for detected agent tools.
+- [`pbmk-skill-install`](./skills/general/pbmk-skill-install/SKILL.md): Install local skills and the pinned external engineering baseline.
 - [`ste`](./skills/general/ste/SKILL.md): Apply ASD-STE100 Simplified Technical English rules.
 - [`unslop`](./skills/general/unslop/SKILL.md): Remove common AI-writing patterns.
 
-### Coding
+### External engineering baseline
 
-- [`code-review`](./skills/coding/code-review/SKILL.md): Review a fixed change for correctness, regressions, maintainability, test quality, and specification gaps.
-- [`codebase-design`](./skills/coding/codebase-design/SKILL.md): Design deep modules with small interfaces at clean seams.
-- [`diagnosing-bugs`](./skills/coding/diagnosing-bugs/SKILL.md): Diagnose hard bugs through a tight feedback loop and falsifiable hypotheses.
-- [`domain-modeling`](./skills/coding/domain-modeling/SKILL.md): Sharpen product language, scenarios, and durable technical decisions.
-- [`prototype`](./skills/coding/prototype/SKILL.md): Build throwaway logic or UI experiments that answer one design question.
-- [`tdd`](./skills/coding/tdd/SKILL.md): Implement behavior through small red-green test cycles.
-- [`technical-research`](./skills/coding/technical-research/SKILL.md): Research engineering decisions from primary sources and save cited findings.
+The installer selects 18 original skills from [`mattpocock/skills`](https://github.com/mattpocock/skills/tree/3cca18b368ae95cdbdebbff572ccafa662551015):
+
+- Workflow: `setup-matt-pocock-skills`, `grill-with-docs`, `triage`, `to-spec`, `to-tickets`, `implement`
+- Disciplines: `grilling`, `domain-modeling`, `tdd`, `code-review`, `codebase-design`, `diagnosing-bugs`, `prototype`, `research`
+- Extended engineering: `improve-codebase-architecture`, `wayfinder`, `resolving-merge-conflicts`, `wizard`
+
+`ask-matt` is excluded because it routes to productivity skills outside this baseline. Other upstream productivity skills are also excluded.
 
 ### Security
 
@@ -30,7 +30,7 @@ Personal agent skills for precise technical and defensive security work. Skills 
 - [`threat-research`](./skills/security/threat-research/SKILL.md): Research threats from high-trust sources.
 - [`secure-code-review`](./skills/security/secure-code-review/SKILL.md): Review a fixed code change for exploitable security weaknesses.
 
-`skills/in-progress/` and `skills/deprecated/` are lifecycle buckets and are not installed.
+`skills/in-progress/` and `skills/deprecated/` are lifecycle buckets and are not installed as local skills.
 
 ## Install
 
@@ -38,6 +38,8 @@ Personal agent skills for precise technical and defensive security work. Skills 
 git clone https://github.com/pabumake/skills.git ~/Documents/skills
 ~/Documents/skills/install.sh
 ```
+
+Installation requires network access, `npx`, and Node.js 22.20 or newer. It changes the global skill directories for every detected tool.
 
 The installer detects supported tools before it writes anything:
 
@@ -48,7 +50,11 @@ The installer detects supported tools before it writes anything:
 | OpenCode | `opencode` on `PATH` | Shared `.agents/skills`, or its native config directory when external skills are disabled |
 | T3 Code | CLI or desktop application | Shared `.agents/skills` plus Claude's skill directory for provider compatibility |
 
-Skills are discovered recursively under promoted categories, then linked by skill name directly into each destination. Before linking, the installer migrates repository-owned links from the old flat layout and removes repository-owned links from obsolete destinations or retired skills. It never removes real directories or foreign symlinks. Rerunning it is idempotent.
+Local skills are discovered recursively under promoted categories, then linked by skill name directly into each destination. Before linking, the installer migrates repository-owned links from the old flat layout and removes repository-owned links from obsolete destinations or retired skills.
+
+After local installation succeeds, the installer runs `skills` CLI 1.5.25 against the pinned Matt Pocock commit above. It passes the 18 names explicitly and installs them globally. It never requests the whole upstream repository. Existing external names are refreshed only when the global skill lock attributes them to `mattpocock/skills`; real directories and foreign symlinks are otherwise preserved as conflicts.
+
+The external phase validates the source, commit, and installed `SKILL.md` files. A network, npm, CLI, or validation failure returns a nonzero status. Local changes made before that failure remain applied.
 
 Run cleanup when you want an additional interactive audit:
 
@@ -65,6 +71,8 @@ git -C ~/Documents/skills pull
 ~/Documents/skills/install.sh
 ```
 
+The external commit and CLI version advance only through reviewed changes to this repository. `npx skills update` is not part of this workflow.
+
 Start a new Codex session or restart Claude Code and OpenCode after installation.
 
 ## Use a skill
@@ -76,6 +84,8 @@ $alert-investigation Investigate this authentication alert from the attached red
 $vulnerability-assessment Assess whether CVE-... affects this deployment.
 /detection-engineering Build a vendor-neutral detection specification for this behavior.
 ```
+
+After the first install, run `$setup-matt-pocock-skills` once in each project that will use the engineering workflow. It records the issue tracker, triage labels, and domain-document layout expected by the upstream skills.
 
 ## Security defaults
 
@@ -94,3 +104,5 @@ skills/<category>/<skill-name>/SKILL.md
 The frontmatter `name` must match `<skill-name>`. Imported or adapted skills must use commit-pinned provenance metadata and include the upstream license in [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
 
 Move retired skills into `skills/deprecated/` and rerun `install.sh`. Its old repository-owned link is removed automatically.
+
+The selected names are declared in [`mattpocock-baseline.txt`](./skills/general/pbmk-skill-install/scripts/mattpocock-baseline.txt), while [`install-mattpocock.sh`](./skills/general/pbmk-skill-install/scripts/install-mattpocock.sh) pins the source commit and CLI version. Review upstream changes before advancing any of them.

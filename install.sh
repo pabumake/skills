@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Link promoted skills from this repo into each detected agent's skill directory.
+# Install local skills and the pinned external engineering baseline.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -9,6 +9,7 @@ AGENT_SKILLS_DIR="${AGENT_SKILLS_DIR:-$HOME/.agents/skills}"
 CLAUDE_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
 OPENCODE_BASE_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 OPENCODE_SKILLS_DIR="$OPENCODE_BASE_DIR/skills"
+MATTPOCOCK_INSTALLER="$REPO_ROOT/skills/general/pbmk-skill-install/scripts/install-mattpocock.sh"
 
 skill_dirs=()
 skill_names=()
@@ -269,11 +270,38 @@ if ! $has_codex && ! $has_claude && ! $has_opencode && ! $has_t3_code; then
 fi
 
 echo ""
-echo "Done. Migrated: $migrated  Removed stale: $removed_stale  Linked: $linked  Updated: $updated  Unchanged: $unchanged  Conflicts: $conflicts"
+echo "Local skills done. Migrated: $migrated  Removed stale: $removed_stale  Linked: $linked  Updated: $updated  Unchanged: $unchanged  Conflicts: $conflicts"
 echo "Run ./cleanup.sh for an optional interactive audit."
+
+if [[ $conflicts -ne 0 ]]; then
+    echo "External baseline skipped because local installation has conflicts." >&2
+    exit 1
+fi
+
+external_agents=()
+add_external_agent() {
+    local requested="$1"
+    local existing
+
+    for existing in "${external_agents[@]-}"; do
+        [[ -n "$existing" && "$existing" == "$requested" ]] && return
+    done
+    external_agents+=("$requested")
+}
+
+$has_codex && add_external_agent "codex"
+$has_claude && add_external_agent "claude-code"
+$has_opencode && add_external_agent "opencode"
+if $has_t3_code; then
+    add_external_agent "codex"
+    add_external_agent "claude-code"
+fi
+
+if ! "$MATTPOCOCK_INSTALLER" "${external_agents[@]}"; then
+    echo "External baseline installation failed. Local skill changes remain applied." >&2
+    exit 1
+fi
 
 $has_codex && echo "Start a new Codex session to load skill changes."
 $has_claude && echo "Restart Claude Code or reload its window to load skill changes."
 $has_opencode && echo "Restart OpenCode to load skill changes."
-
-[[ $conflicts -eq 0 ]]
