@@ -2,7 +2,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EXPECTED_REF="3cca18b368ae95cdbdebbff572ccafa662551015"
 EXPECTED_SKILLS=(
     setup-matt-pocock-skills
     grill-with-docs
@@ -114,8 +113,8 @@ test_root_installer_invokes_pinned_baseline() {
     [[ -f "$test_root/npx.args" ]] || fail "root installer did not invoke npx"
     args="$(<"$test_root/npx.args")"
 
-    assert_contains "$args" "--yes skills@1.5.25 add"
-    assert_contains "$args" "https://github.com/mattpocock/skills/tree/$EXPECTED_REF"
+    assert_contains "$args" "--yes skills@latest add"
+    assert_contains "$args" "https://github.com/mattpocock/skills"
     assert_contains "$args" "--skill"
     assert_contains "$args" "--agent codex claude-code opencode"
     assert_contains "$args" "--global --yes"

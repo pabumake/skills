@@ -3,9 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-SKILLS_CLI_VERSION="1.5.25"
-UPSTREAM_REF="3cca18b368ae95cdbdebbff572ccafa662551015"
-UPSTREAM_URL="https://github.com/mattpocock/skills/tree/$UPSTREAM_REF"
+SKILLS_CLI_VERSION="latest"
+UPSTREAM_URL="https://github.com/mattpocock/skills"
 BASELINE_FILE="$SCRIPT_DIR/mattpocock-baseline.txt"
 
 BASELINE_SKILLS=()
@@ -147,9 +146,9 @@ npx --yes "skills@$SKILLS_CLI_VERSION" add "$UPSTREAM_URL" \
 
 node "$SCRIPT_DIR/validate-mattpocock-install.mjs" \
     "$GLOBAL_SKILL_LOCK" \
-    "$UPSTREAM_REF" \
+    "" \
     "${target_dirs[@]}" \
     -- \
     "${BASELINE_SKILLS[@]}"
 
-echo "External baseline installed at $UPSTREAM_REF."
+echo "External baseline installed (latest)."

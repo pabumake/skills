@@ -33,7 +33,7 @@ for (const skillName of skillNames) {
     if (entry.source !== 'mattpocock/skills') {
       errors.push(`${skillName} has unexpected source ${entry.source ?? '<missing>'}`);
     }
-    if (entry.ref !== expectedRef) {
+    if (expectedRef && entry.ref !== expectedRef) {
       errors.push(`${skillName} has unexpected ref ${entry.ref ?? '<missing>'}`);
     }
   }
