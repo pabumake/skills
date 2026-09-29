@@ -4,6 +4,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_ROOT="$REPO_ROOT/skills"
+LEGACY_REPO_ROOT="$HOME/Documents/skills"
 
 AGENT_SKILLS_DIR="${AGENT_SKILLS_DIR:-$HOME/.agents/skills}"
 CLAUDE_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
@@ -82,7 +83,7 @@ review_target() {
         normalized_target="${target%/}"
         skill_name="$(basename "$link")"
 
-        [[ "$normalized_target" == "$REPO_ROOT"/* ]] || continue
+        [[ "$normalized_target" == "$REPO_ROOT"/* || "$normalized_target" == "$LEGACY_REPO_ROOT"/* ]] || continue
 
         state="clean"
         [[ ! -e "$link" ]] && state="broken"

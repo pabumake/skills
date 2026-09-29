@@ -322,9 +322,64 @@ test_repeated_install_accepts_managed_upstream_skills() {
     echo "PASS: repeated install accepts managed upstream skills"
 }
 
+test_relocation_adopts_documents_links() {
+    local test_root fake_bin fake_home old_root output status
+
+    test_root="$(mktemp -d /private/tmp/pbmk-skills-relocation-test.XXXXXX)"
+    trap 'rm -rf "$test_root"' RETURN
+    fake_bin="$test_root/bin"
+    fake_home="$test_root/home"
+    old_root="$fake_home/Documents/skills"
+    mkdir -p "$fake_bin" "$fake_home/.agents/skills" "$fake_home/.claude/skills" \
+        "$fake_home/.config/opencode/skills" "$fake_home/.codex/skills"
+
+    ln -s "$old_root/skills/security/security-analysis" "$fake_home/.agents/skills/security-analysis"
+    ln -s "$old_root/skills/security/security-analysis" "$fake_home/.claude/skills/security-analysis"
+    ln -s "$old_root/skills/deprecated/retired-skill" "$fake_home/.agents/skills/retired-skill"
+    ln -s "$old_root/skills/deprecated/retired-skill" "$fake_home/.config/opencode/skills/retired-skill"
+    ln -s "$old_root/skills/deprecated/mattpocock-adaptations/code-review" "$fake_home/.codex/skills/code-review"
+    ln -s "$test_root/foreign/untouched" "$fake_home/.agents/skills/foreign-skill"
+
+    for tool in codex claude opencode; do
+        printf '#!/usr/bin/env bash\nexit 0\n' >"$fake_bin/$tool"
+        chmod +x "$fake_bin/$tool"
+    done
+    write_successful_npx_stub "$fake_bin/npx"
+
+    set +e
+    output="$({
+        HOME="$fake_home" \
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$fake_home/.agents/skills" \
+        CLAUDE_CONFIG_DIR="$fake_home/.claude" \
+        OPENCODE_CONFIG_DIR="$fake_home/.config/opencode" \
+        CODEX_HOME="$fake_home/.codex" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_LOG="$test_root/npx.args" \
+        "$REPO_ROOT/install.sh"
+    } 2>&1)"
+    status=$?
+    set -e
+
+    [[ $status -eq 0 ]] || fail "relocation install failed: $output"
+    [[ "$(readlink "$fake_home/.agents/skills/security-analysis")" == "$REPO_ROOT/skills/security/security-analysis" ]] ||
+        fail "agent link still points to the Documents checkout"
+    [[ "$(readlink "$fake_home/.claude/skills/security-analysis")" == "$REPO_ROOT/skills/security/security-analysis" ]] ||
+        fail "Claude link still points to the Documents checkout"
+    [[ ! -L "$fake_home/.agents/skills/retired-skill" ]] || fail "retired agent link survived"
+    [[ ! -L "$fake_home/.config/opencode/skills/retired-skill" ]] || fail "legacy OpenCode link survived"
+    [[ ! -L "$fake_home/.codex/skills/code-review" ]] || fail "legacy Codex link survived"
+    [[ "$(readlink "$fake_home/.agents/skills/foreign-skill")" == "$test_root/foreign/untouched" ]] ||
+        fail "foreign link was changed"
+    assert_contains "$output" "Validated 18 Matt Pocock skills"
+
+    echo "PASS: relocated installer adopts Documents links and preserves foreign links"
+}
+
 test_root_installer_invokes_pinned_baseline
 test_foreign_baseline_skill_is_preserved
 test_external_failure_reports_partial_install
 test_false_success_fails_post_install_validation
 test_retired_links_are_replaced_before_upstream_install
 test_repeated_install_accepts_managed_upstream_skills
+test_relocation_adopts_documents_links

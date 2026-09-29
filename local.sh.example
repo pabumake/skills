@@ -4,4 +4,4 @@
 # the repo's own skills/ tree. Skills from both roots are merged; duplicate names
 # are a preflight error. Any directory layout using <skill-name>/SKILL.md works.
 #
-# EXTRA_SKILLS_ROOT="$HOME/Documents/my-work-skills/skills"
+# EXTRA_SKILLS_ROOT="$HOME/src/my-work-skills/skills"

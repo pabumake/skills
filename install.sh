@@ -4,6 +4,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_ROOT="$REPO_ROOT/skills"
+LEGACY_REPO_ROOT="$HOME/Documents/skills"
 
 AGENT_SKILLS_DIR="${AGENT_SKILLS_DIR:-$HOME/.agents/skills}"
 CLAUDE_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
@@ -28,10 +29,12 @@ is_truthy() {
     esac
 }
 
-# Returns 0 if the symlink target path is owned by this repo or the extra root.
+# Returns 0 if the symlink target path is owned by this repo, its old
+# Documents location, or the extra root.
 is_repo_owned() {
     local t="${1%/}"
     [[ "$t" == "$REPO_ROOT"/* ]] && return 0
+    [[ "$t" == "$LEGACY_REPO_ROOT"/* ]] && return 0
     [[ -n "$EXTRA_SKILLS_ROOT" && "$t" == "$EXTRA_SKILLS_ROOT"/* ]] && return 0
     return 1
 }

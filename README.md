@@ -35,8 +35,8 @@ The installer selects 18 original skills from [`mattpocock/skills`](https://gith
 ## Install
 
 ```bash
-git clone https://github.com/pabumake/skills.git ~/Documents/skills
-~/Documents/skills/install.sh
+git clone https://github.com/pabumake/skills.git ~/src/skills
+~/src/skills/install.sh
 ```
 
 Installation requires network access, `npx`, and Node.js 22.20 or newer. It changes the global skill directories for every detected tool.
@@ -59,7 +59,7 @@ The external phase validates the source, commit, and installed `SKILL.md` files.
 Run cleanup when you want an additional interactive audit:
 
 ```bash
-~/Documents/skills/cleanup.sh
+~/src/skills/cleanup.sh
 ```
 
 Cleanup reviews current destinations plus legacy Codex and OpenCode locations. It prompts before removing any remaining repository-owned link and ignores third-party links. Normal upgrades do not require it because `install.sh` performs the safe migration automatically.
@@ -67,8 +67,8 @@ Cleanup reviews current destinations plus legacy Codex and OpenCode locations. I
 ## Update
 
 ```bash
-git -C ~/Documents/skills pull
-~/Documents/skills/install.sh
+git -C ~/src/skills pull
+~/src/skills/install.sh
 ```
 
 The external commit and CLI version advance only through reviewed changes to this repository. `npx skills update` is not part of this workflow.
