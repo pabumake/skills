@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_CLI_VERSION="latest"
 UPSTREAM_URL="https://github.com/mattpocock/skills"
 BASELINE_FILE="$SCRIPT_DIR/mattpocock-baseline.txt"
+RETIRED_FILE="$SCRIPT_DIR/mattpocock-retired.txt"
 
 BASELINE_SKILLS=()
 while IFS= read -r skill_name; do
@@ -20,6 +21,18 @@ done <"$BASELINE_FILE"
 if [[ ${#BASELINE_SKILLS[@]} -eq 0 ]]; then
     echo "external preflight error: baseline allowlist is empty" >&2
     exit 1
+fi
+
+RETIRED_SKILLS=()
+if [[ -f "$RETIRED_FILE" ]]; then
+    while IFS= read -r skill_name; do
+        [[ -z "$skill_name" || "$skill_name" == \#* ]] && continue
+        if [[ ! "$skill_name" =~ ^[a-z0-9-]+$ ]]; then
+            echo "external preflight error: invalid retired skill name in $RETIRED_FILE: $skill_name" >&2
+            exit 1
+        fi
+        RETIRED_SKILLS+=("$skill_name")
+    done <"$RETIRED_FILE"
 fi
 
 if [[ $# -eq 0 ]]; then
@@ -52,20 +65,32 @@ else
 fi
 
 managed_skills=()
+updateable_skills=()
+foreign_locked_skills=()
 if [[ -f "$GLOBAL_SKILL_LOCK" ]]; then
     if ! managed_output="$(node - "$GLOBAL_SKILL_LOCK" <<'NODE'
 const fs = require('fs');
 const lock = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 for (const [name, entry] of Object.entries(lock.skills || {})) {
-  if (entry && entry.source === 'mattpocock/skills') console.log(name);
+  if (entry && entry.source === 'mattpocock/skills') {
+    console.log(`${entry.skillFolderHash && entry.skillPath && !entry.ref ? 'update' : 'add'} ${name}`);
+  } else {
+    console.log(`foreign ${name}`);
+  }
 }
 NODE
     )"; then
         echo "external preflight error: could not read global skill lock $GLOBAL_SKILL_LOCK" >&2
         exit 1
     fi
-    while IFS= read -r managed_name; do
-        [[ -n "$managed_name" ]] && managed_skills+=("$managed_name")
+    while read -r action managed_name; do
+        [[ -z "${managed_name:-}" ]] && continue
+        if [[ "$action" == "foreign" ]]; then
+            foreign_locked_skills+=("$managed_name")
+        else
+            managed_skills+=("$managed_name")
+            [[ "$action" == "update" ]] && updateable_skills+=("$managed_name")
+        fi
     done <<<"$managed_output"
 fi
 
@@ -75,6 +100,16 @@ is_managed_skill() {
 
     for managed in "${managed_skills[@]-}"; do
         [[ -n "$managed" && "$managed" == "$requested" ]] && return 0
+    done
+    return 1
+}
+
+is_updateable_skill() {
+    local requested="$1"
+    local updateable
+
+    for updateable in "${updateable_skills[@]-}"; do
+        [[ -n "$updateable" && "$updateable" == "$requested" ]] && return 0
     done
     return 1
 }
@@ -109,6 +144,14 @@ for agent in "$@"; do
 done
 
 preflight_errors=0
+for skill_name in "${BASELINE_SKILLS[@]}"; do
+    for foreign_name in "${foreign_locked_skills[@]-}"; do
+        if [[ "$skill_name" == "$foreign_name" ]]; then
+            echo "external preflight error: foreign lock entry for $skill_name" >&2
+            preflight_errors=$((preflight_errors + 1))
+        fi
+    done
+done
 for target_dir in "${target_dirs[@]}"; do
     for skill_name in "${BASELINE_SKILLS[@]}"; do
         destination="$target_dir/$skill_name"
@@ -126,23 +169,99 @@ if [[ $preflight_errors -ne 0 ]]; then
     exit 1
 fi
 
+for retired_name in "${RETIRED_SKILLS[@]-}"; do
+    for skill_name in "${BASELINE_SKILLS[@]}"; do
+        if [[ -n "$retired_name" && "$retired_name" == "$skill_name" ]]; then
+            echo "external preflight error: $skill_name is both selected and retired" >&2
+            exit 1
+        fi
+    done
+done
+
 echo ""
-echo "Installing Matt Pocock baseline"
+echo "Refreshing Matt Pocock baseline"
 echo "  source: $UPSTREAM_URL"
 echo "  skills CLI: $SKILLS_CLI_VERSION"
 echo "  selected: ${#BASELINE_SKILLS[@]} skill(s)"
 echo "  agents: $*"
 
-skill_args=()
+add_skills=()
+update_skills=()
 for skill_name in "${BASELINE_SKILLS[@]}"; do
-    skill_args+=(--skill "$skill_name")
+    needs_add=false
+    if ! is_updateable_skill "$skill_name"; then
+        needs_add=true
+    else
+        for target_dir in "${target_dirs[@]}"; do
+            if [[ ! -f "$target_dir/$skill_name/SKILL.md" ]]; then
+                needs_add=true
+                break
+            fi
+        done
+    fi
+    if $needs_add; then
+        add_skills+=("$skill_name")
+    else
+        update_skills+=("$skill_name")
+    fi
 done
 
-npx --yes "skills@$SKILLS_CLI_VERSION" add "$UPSTREAM_URL" \
-    "${skill_args[@]}" \
-    --agent "$@" \
-    --global \
-    --yes
+if [[ ${#update_skills[@]} -gt 0 ]]; then
+    echo "  checking ${#update_skills[@]} installed skill(s) for changes"
+    update_output="$(npx --yes "skills@$SKILLS_CLI_VERSION" update \
+        --global --yes "${update_skills[@]}" 2>&1)" || {
+        echo "$update_output" >&2
+        exit 1
+    }
+    echo "$update_output"
+    # The CLI can return success after a failed remote check. Do not report a
+    # successful refresh when it could not determine whether skills changed.
+    if [[ "$update_output" == *"Failed to check skills from"* \
+        || "$update_output" == *"Failed to update"* \
+        || "$update_output" == *"cannot be checked automatically"* ]]; then
+        echo "external validation error: update check was incomplete" >&2
+        exit 1
+    fi
+fi
+
+if [[ ${#add_skills[@]} -gt 0 ]]; then
+    echo "  installing or repairing ${#add_skills[@]} skill(s)"
+    skill_args=()
+    for skill_name in "${add_skills[@]}"; do
+        skill_args+=(--skill "$skill_name")
+    done
+    npx --yes "skills@$SKILLS_CLI_VERSION" add "$UPSTREAM_URL" \
+        "${skill_args[@]}" \
+        --agent "$@" \
+        --global \
+        --yes
+fi
+
+for retired_name in "${RETIRED_SKILLS[@]-}"; do
+    [[ -n "$retired_name" ]] || continue
+    if is_managed_skill "$retired_name"; then
+        echo "  removing retired skill: $retired_name"
+        npx --yes "skills@$SKILLS_CLI_VERSION" remove \
+            --global --yes "$retired_name"
+        if node - "$GLOBAL_SKILL_LOCK" "$retired_name" <<'NODE'
+const fs = require('fs');
+const lock = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.exit(lock.skills?.[process.argv[3]] ? 1 : 0);
+NODE
+        then
+            :
+        else
+            echo "external validation error: retired skill remains in global lock: $retired_name" >&2
+            exit 1
+        fi
+        for target_dir in "${target_dirs[@]}"; do
+            if [[ -e "$target_dir/$retired_name" || -L "$target_dir/$retired_name" ]]; then
+                echo "external validation error: retired skill remains at $target_dir/$retired_name" >&2
+                exit 1
+            fi
+        done
+    fi
+done
 
 node "$SCRIPT_DIR/validate-mattpocock-install.mjs" \
     "$GLOBAL_SKILL_LOCK" \
@@ -151,4 +270,4 @@ node "$SCRIPT_DIR/validate-mattpocock-install.mjs" \
     -- \
     "${BASELINE_SKILLS[@]}"
 
-echo "External baseline installed (latest)."
+echo "External baseline validated."

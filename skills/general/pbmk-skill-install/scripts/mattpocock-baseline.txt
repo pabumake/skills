@@ -4,6 +4,7 @@ triage
 to-spec
 to-tickets
 implement
+implement-spec
 grilling
 domain-modeling
 tdd
@@ -14,5 +15,6 @@ prototype
 research
 improve-codebase-architecture
 wayfinder
-resolving-merge-conflicts
+pr
+retro
 wizard

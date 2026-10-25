@@ -9,6 +9,7 @@ EXPECTED_SKILLS=(
     to-spec
     to-tickets
     implement
+    implement-spec
     grilling
     domain-modeling
     tdd
@@ -19,7 +20,8 @@ EXPECTED_SKILLS=(
     research
     improve-codebase-architecture
     wayfinder
-    resolving-merge-conflicts
+    pr
+    retro
     wizard
 )
 
@@ -43,18 +45,44 @@ printf '%s\n' "$*" >>"$FAKE_NPX_LOG"
 
 skills=()
 reading_skills=false
-upstream_ref=""
-for arg in "$@"; do
-    if [[ "$arg" == https://github.com/mattpocock/skills/tree/* ]]; then
-        upstream_ref="${arg##*/}"
-    elif [[ "$arg" == "--skill" ]]; then
+action="$3"
+for arg in "${@:4}"; do
+    if [[ "$arg" == "--skill" ]]; then
         reading_skills=true
     elif [[ "$arg" == --* ]]; then
         reading_skills=false
-    elif $reading_skills; then
+    elif [[ "$action" == "update" || "$action" == "remove" || "$reading_skills" == true ]]; then
         skills+=("$arg")
     fi
 done
+
+if [[ "$action" == "remove" ]]; then
+    node - "$XDG_STATE_HOME/skills/.skill-lock.json" "$AGENT_SKILLS_DIR" "$CLAUDE_CONFIG_DIR/skills" "${skills[@]}" <<'NODE'
+const fs = require('fs');
+const [lockPath, agentsDir, claudeDir, ...names] = process.argv.slice(2);
+const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+for (const name of names) {
+  delete lock.skills[name];
+  fs.rmSync(`${agentsDir}/${name}`, { recursive: true, force: true });
+  fs.rmSync(`${claudeDir}/${name}`, { recursive: true, force: true });
+}
+fs.writeFileSync(lockPath, JSON.stringify(lock));
+NODE
+    exit 0
+fi
+
+if [[ "$action" == "update" ]]; then
+    if [[ -n "${FAKE_NPX_UPDATE_ERROR:-}" ]]; then
+        echo "Failed to check skills from mattpocock/skills"
+    elif [[ -n "${FAKE_NPX_CHANGED_SKILL:-}" ]]; then
+        printf 'updated\n' >>"$AGENT_SKILLS_DIR/$FAKE_NPX_CHANGED_SKILL/SKILL.md"
+        echo "Found 1 global update(s)"
+        echo "Updated $FAKE_NPX_CHANGED_SKILL"
+    else
+        echo "All global skills are up to date"
+    fi
+    exit 0
+fi
 
 for skill in "${skills[@]}"; do
     if [[ -L "$AGENT_SKILLS_DIR/$skill" ]]; then
@@ -67,20 +95,24 @@ for skill in "${skills[@]}"; do
 done
 
 mkdir -p "$XDG_STATE_HOME/skills"
-{
-    printf '{\n  "version": 3,\n  "skills": {'
-    separator=""
-    for skill in "${skills[@]}"; do
-        printf '%s\n    "%s": {"source": "mattpocock/skills", "ref": "%s"}' "$separator" "$skill" "$upstream_ref"
-        separator=","
-    done
-    printf '\n  }\n}\n'
-} >"$XDG_STATE_HOME/skills/.skill-lock.json"
+node - "$XDG_STATE_HOME/skills/.skill-lock.json" "${skills[@]}" <<'NODE'
+const fs = require('fs');
+const lockPath = process.argv[2];
+const lock = fs.existsSync(lockPath) ? JSON.parse(fs.readFileSync(lockPath, 'utf8')) : { version: 3, skills: {} };
+for (const name of process.argv.slice(3)) {
+  lock.skills[name] = {
+    source: 'mattpocock/skills',
+    skillFolderHash: 'hash',
+    skillPath: `skills/engineering/${name}/SKILL.md`,
+  };
+}
+fs.writeFileSync(lockPath, JSON.stringify(lock));
+NODE
 EOF
     chmod +x "$path"
 }
 
-test_root_installer_invokes_pinned_baseline() {
+test_root_installer_adds_selected_baseline() {
     local test_root fake_bin output status args skill arg skill_flag_count
 
     test_root="$(mktemp -d /private/tmp/pbmk-skills-install-test.XXXXXX)"
@@ -132,7 +164,7 @@ test_root_installer_invokes_pinned_baseline() {
         assert_contains "$args" "$skill"
     done
 
-    echo "PASS: root installer invokes the pinned baseline"
+    echo "PASS: root installer adds the selected baseline"
 }
 
 test_foreign_baseline_skill_is_preserved() {
@@ -170,6 +202,39 @@ EOF
     assert_contains "$output" "foreign conflict"
 
     echo "PASS: foreign baseline skill is preserved"
+}
+
+test_foreign_lock_entry_is_preserved() {
+    local test_root fake_bin output status
+
+    test_root="$(mktemp -d /private/tmp/pbmk-skills-lock-conflict-test.XXXXXX)"
+    trap 'rm -rf "$test_root"' RETURN
+    fake_bin="$test_root/bin"
+    mkdir -p "$fake_bin" "$test_root/state/skills"
+    printf '{"skills":{"code-review":{"source":"someone-else/skills"}}}\n' >"$test_root/state/skills/.skill-lock.json"
+    cat >"$fake_bin/npx" <<'EOF'
+#!/usr/bin/env bash
+touch "$FAKE_NPX_CALLED"
+exit 0
+EOF
+    chmod +x "$fake_bin/npx"
+
+    set +e
+    output="$({
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$test_root/agents/skills" \
+        CLAUDE_CONFIG_DIR="$test_root/claude" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_CALLED="$test_root/npx.called" \
+        "$REPO_ROOT/skills/general/pbmk-skill-install/scripts/install-mattpocock.sh" codex
+    } 2>&1)"
+    status=$?
+    set -e
+
+    [[ $status -ne 0 ]] || fail "installer replaced a foreign lock entry"
+    [[ ! -e "$test_root/npx.called" ]] || fail "npx ran despite a foreign lock entry"
+    assert_contains "$output" "foreign lock entry for code-review"
+    echo "PASS: foreign lock entry is preserved"
 }
 
 test_external_failure_reports_partial_install() {
@@ -275,8 +340,8 @@ test_retired_links_are_replaced_before_upstream_install() {
     echo "PASS: retired links are replaced before upstream installation"
 }
 
-test_repeated_install_accepts_managed_upstream_skills() {
-    local test_root fake_bin first_output second_output status skill calls
+test_repeated_install_skips_unchanged_upstream_skills() {
+    local test_root fake_bin first_output second_output third_output status skill calls
 
     test_root="$(mktemp -d /private/tmp/pbmk-skills-repeat-test.XXXXXX)"
     trap 'rm -rf "$test_root"' RETURN
@@ -316,14 +381,171 @@ test_repeated_install_accepts_managed_upstream_skills() {
 
     [[ $status -eq 0 ]] || fail "second repeated-install run failed: $second_output"
     calls="$(wc -l <"$test_root/npx.args" | tr -d ' ')"
-    [[ "$calls" == "2" ]] || fail "expected two upstream refreshes, got $calls"
-    assert_contains "$second_output" "Validated 18 Matt Pocock skills"
+    [[ "$calls" == "2" ]] || fail "expected one add and one update check, got $calls"
+    [[ "$(tail -n 1 "$test_root/npx.args")" == *"skills@latest update --global --yes"* ]] ||
+        fail "repeat install did not check for updates"
+    [[ "$(tail -n 1 "$test_root/npx.args")" != *" add "* ]] ||
+        fail "repeat install reinstalled unchanged skills"
+    for skill in "${EXPECTED_SKILLS[@]}"; do
+        assert_contains "$(tail -n 1 "$test_root/npx.args")" "$skill"
+    done
+    assert_contains "$second_output" "All global skills are up to date"
+    assert_contains "$second_output" "Validated 20 Matt Pocock skills"
 
-    echo "PASS: repeated install accepts managed upstream skills"
+    rm "$test_root/agents/skills/code-review/SKILL.md"
+    third_output="$({
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$test_root/agents/skills" \
+        CLAUDE_CONFIG_DIR="$test_root/claude" \
+        OPENCODE_CONFIG_DIR="$test_root/opencode" \
+        CODEX_HOME="$test_root/codex" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_LOG="$test_root/npx.args" \
+        "$REPO_ROOT/install.sh"
+    } 2>&1)" || fail "repair run failed: $third_output"
+    [[ -f "$test_root/agents/skills/code-review/SKILL.md" ]] || fail "missing skill was not repaired"
+    assert_contains "$third_output" "installing or repairing 1 skill(s)"
+    [[ "$(tail -n 1 "$test_root/npx.args")" == *" add "* ]] || fail "repair did not run add"
+
+    node - "$test_root/state/skills/.skill-lock.json" <<'NODE'
+const fs = require('fs');
+const file = process.argv[2];
+const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
+lock.skills.wizard.ref = 'old-pinned-commit';
+fs.writeFileSync(file, JSON.stringify(lock));
+NODE
+    third_output="$({
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$test_root/agents/skills" \
+        CLAUDE_CONFIG_DIR="$test_root/claude" \
+        OPENCODE_CONFIG_DIR="$test_root/opencode" \
+        CODEX_HOME="$test_root/codex" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_LOG="$test_root/npx.args" \
+        "$REPO_ROOT/install.sh"
+    } 2>&1)" || fail "pinned-source migration failed: $third_output"
+    assert_contains "$third_output" "installing or repairing 1 skill(s)"
+    [[ "$(tail -n 1 "$test_root/npx.args")" == *"--skill wizard"* ]] ||
+        fail "pinned skill was not refreshed from the current source"
+
+    echo "PASS: repeated install skips unchanged upstream skills"
+}
+
+test_failed_update_check_is_reported() {
+    local test_root fake_bin first_output second_output status skill
+
+    test_root="$(mktemp -d /private/tmp/pbmk-skills-update-failure-test.XXXXXX)"
+    trap 'rm -rf "$test_root"' RETURN
+    fake_bin="$test_root/bin"
+    mkdir -p "$fake_bin"
+    for skill in codex claude opencode; do
+        printf '#!/usr/bin/env bash\nexit 0\n' >"$fake_bin/$skill"
+        chmod +x "$fake_bin/$skill"
+    done
+    write_successful_npx_stub "$fake_bin/npx"
+
+    first_output="$({
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$test_root/agents/skills" \
+        CLAUDE_CONFIG_DIR="$test_root/claude" \
+        OPENCODE_CONFIG_DIR="$test_root/opencode" \
+        CODEX_HOME="$test_root/codex" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_LOG="$test_root/npx.args" \
+        "$REPO_ROOT/install.sh"
+    } 2>&1)" || fail "setup install failed: $first_output"
+
+    set +e
+    second_output="$({
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$test_root/agents/skills" \
+        CLAUDE_CONFIG_DIR="$test_root/claude" \
+        OPENCODE_CONFIG_DIR="$test_root/opencode" \
+        CODEX_HOME="$test_root/codex" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_LOG="$test_root/npx.args" \
+        FAKE_NPX_UPDATE_ERROR=1 \
+        "$REPO_ROOT/install.sh"
+    } 2>&1)"
+    status=$?
+    set -e
+
+    [[ $status -ne 0 ]] || fail "remote check failure was reported as success"
+    assert_contains "$second_output" "update check was incomplete"
+    echo "PASS: failed update check is reported"
+}
+
+test_retired_upstream_skill_is_removed_only_when_managed() {
+    local test_root fake_bin output skill retired_name remove_calls
+
+    test_root="$(mktemp -d /private/tmp/pbmk-skills-retired-test.XXXXXX)"
+    trap 'rm -rf "$test_root"' RETURN
+    fake_bin="$test_root/bin"
+    retired_name="resolving-merge-conflicts"
+    mkdir -p "$fake_bin"
+    for skill in codex claude opencode; do
+        printf '#!/usr/bin/env bash\nexit 0\n' >"$fake_bin/$skill"
+        chmod +x "$fake_bin/$skill"
+    done
+    write_successful_npx_stub "$fake_bin/npx"
+
+    output="$({
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$test_root/agents/skills" \
+        CLAUDE_CONFIG_DIR="$test_root/claude" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_LOG="$test_root/npx.args" \
+        "$REPO_ROOT/skills/general/pbmk-skill-install/scripts/install-mattpocock.sh" codex claude-code
+    } 2>&1)" || fail "retired test setup failed: $output"
+
+    node - "$test_root/state/skills/.skill-lock.json" "$retired_name" <<'NODE'
+const fs = require('fs');
+const file = process.argv[2];
+const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
+lock.skills[process.argv[3]] = { source: 'mattpocock/skills' };
+fs.writeFileSync(file, JSON.stringify(lock));
+NODE
+    mkdir -p "$test_root/agents/skills/$retired_name" "$test_root/claude/skills/$retired_name"
+
+    output="$({
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$test_root/agents/skills" \
+        CLAUDE_CONFIG_DIR="$test_root/claude" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_LOG="$test_root/npx.args" \
+        "$REPO_ROOT/skills/general/pbmk-skill-install/scripts/install-mattpocock.sh" codex claude-code
+    } 2>&1)" || fail "retired skill removal failed: $output"
+    assert_contains "$output" "removing retired skill: $retired_name"
+    [[ ! -e "$test_root/agents/skills/$retired_name" ]] || fail "retired managed skill remains installed"
+    [[ "$(tail -n 1 "$test_root/npx.args")" == *"remove --global --yes $retired_name"* ]] ||
+        fail "retired skill was not removed by name"
+
+    node - "$test_root/state/skills/.skill-lock.json" "$retired_name" <<'NODE'
+const fs = require('fs');
+const file = process.argv[2];
+const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
+lock.skills[process.argv[3]] = { source: 'someone-else/skills' };
+fs.writeFileSync(file, JSON.stringify(lock));
+NODE
+    mkdir -p "$test_root/agents/skills/$retired_name"
+    remove_calls="$(rg -c ' remove ' "$test_root/npx.args")"
+    output="$({
+        PATH="$fake_bin:$PATH" \
+        AGENT_SKILLS_DIR="$test_root/agents/skills" \
+        CLAUDE_CONFIG_DIR="$test_root/claude" \
+        XDG_STATE_HOME="$test_root/state" \
+        FAKE_NPX_LOG="$test_root/npx.args" \
+        "$REPO_ROOT/skills/general/pbmk-skill-install/scripts/install-mattpocock.sh" codex claude-code
+    } 2>&1)" || fail "foreign retired skill check failed: $output"
+    [[ -d "$test_root/agents/skills/$retired_name" ]] || fail "foreign retired skill was removed"
+    [[ "$(rg -c ' remove ' "$test_root/npx.args")" == "$remove_calls" ]] ||
+        fail "foreign retired skill triggered removal"
+
+    echo "PASS: retired upstream skill is removed only when managed"
 }
 
 test_relocation_adopts_documents_links() {
-    local test_root fake_bin fake_home old_root output status
+    local test_root fake_bin fake_home old_root output status tool
 
     test_root="$(mktemp -d /private/tmp/pbmk-skills-relocation-test.XXXXXX)"
     trap 'rm -rf "$test_root"' RETURN
@@ -371,15 +593,18 @@ test_relocation_adopts_documents_links() {
     [[ ! -L "$fake_home/.codex/skills/code-review" ]] || fail "legacy Codex link survived"
     [[ "$(readlink "$fake_home/.agents/skills/foreign-skill")" == "$test_root/foreign/untouched" ]] ||
         fail "foreign link was changed"
-    assert_contains "$output" "Validated 18 Matt Pocock skills"
+    assert_contains "$output" "Validated 20 Matt Pocock skills"
 
     echo "PASS: relocated installer adopts Documents links and preserves foreign links"
 }
 
-test_root_installer_invokes_pinned_baseline
+test_root_installer_adds_selected_baseline
 test_foreign_baseline_skill_is_preserved
+test_foreign_lock_entry_is_preserved
 test_external_failure_reports_partial_install
 test_false_success_fails_post_install_validation
 test_retired_links_are_replaced_before_upstream_install
-test_repeated_install_accepts_managed_upstream_skills
+test_repeated_install_skips_unchanged_upstream_skills
+test_failed_update_check_is_reported
+test_retired_upstream_skill_is_removed_only_when_managed
 test_relocation_adopts_documents_links
