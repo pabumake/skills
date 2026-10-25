@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EXPECTED_SKILLS=(
     setup-matt-pocock-skills
+    ask-matt
     grill-with-docs
     triage
     to-spec
@@ -23,6 +24,12 @@ EXPECTED_SKILLS=(
     pr
     retro
     wizard
+    grill-me
+    handoff
+    teach
+    to-questionnaire
+    wait-what
+    writing-for-agents
 )
 
 fail() {
@@ -163,8 +170,10 @@ test_root_installer_adds_selected_baseline() {
     for skill in "${EXPECTED_SKILLS[@]}"; do
         assert_contains "$args" "$skill"
     done
+    [[ -f "$test_root/agents/skills/teach/SKILL.md" ]] || fail "teach was not installed for Codex"
+    [[ -f "$test_root/claude/skills/teach/SKILL.md" ]] || fail "teach was not installed for Claude Code"
 
-    echo "PASS: root installer adds the selected baseline"
+    echo "PASS: root installer adds all README-listed skills"
 }
 
 test_foreign_baseline_skill_is_preserved() {
@@ -390,7 +399,7 @@ test_repeated_install_skips_unchanged_upstream_skills() {
         assert_contains "$(tail -n 1 "$test_root/npx.args")" "$skill"
     done
     assert_contains "$second_output" "All global skills are up to date"
-    assert_contains "$second_output" "Validated 20 Matt Pocock skills"
+    assert_contains "$second_output" "Validated ${#EXPECTED_SKILLS[@]} Matt Pocock skills"
 
     rm "$test_root/agents/skills/code-review/SKILL.md"
     third_output="$({
@@ -593,7 +602,7 @@ test_relocation_adopts_documents_links() {
     [[ ! -L "$fake_home/.codex/skills/code-review" ]] || fail "legacy Codex link survived"
     [[ "$(readlink "$fake_home/.agents/skills/foreign-skill")" == "$test_root/foreign/untouched" ]] ||
         fail "foreign link was changed"
-    assert_contains "$output" "Validated 20 Matt Pocock skills"
+    assert_contains "$output" "Validated ${#EXPECTED_SKILLS[@]} Matt Pocock skills"
 
     echo "PASS: relocated installer adopts Documents links and preserves foreign links"
 }

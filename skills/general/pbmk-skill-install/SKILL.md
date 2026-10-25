@@ -1,13 +1,13 @@
 ---
 name: pbmk-skill-install
-description: Install or update this personal skill collection and the selected Matt Pocock engineering skills for detected Codex, Claude Code, OpenCode, and T3 Code environments.
+description: Install or update this personal skill collection and Matt Pocock's README-listed engineering and productivity skills for detected Codex, Claude Code, OpenCode, and T3 Code environments.
 metadata:
   origin: "https://github.com/pabumake/skills"
 ---
 
 # pbmk-skill-install
 
-Bootstrap or refresh skills from this personal repository. The root installer links locally maintained skills and checks the selected Matt Pocock skills for upstream changes.
+Bootstrap or refresh skills from this personal repository. The root installer links locally maintained skills and checks the 27 Matt Pocock skills listed in the upstream README for changes.
 
 ## Steps
 
@@ -23,7 +23,7 @@ Bootstrap or refresh skills from this personal repository. The root installer li
 
 - `install.sh` is the only install entry point. After local installation succeeds, it checks existing Matt Pocock skills for changes and adds missing skills.
 - The external script uses the latest `skills` CLI and Matt Pocock repository head. It validates ownership and installed files, but does not verify a fixed upstream commit.
-- The external allowlist lives beside the installer in `scripts/mattpocock-baseline.txt`. Explicit removals live in `scripts/mattpocock-retired.txt`. Only those names may be passed to the CLI; do not update every globally installed skill or install the whole upstream repository.
+- The external allowlist lives beside the installer in `scripts/mattpocock-baseline.txt`. It contains every skill listed in the upstream README. Explicit removals live in `scripts/mattpocock-retired.txt`. Only those names may be passed to the CLI; do not update unrelated global skills.
 - `install.sh` is idempotent and automatically lifts links from the old flat layout into the current category layout.
 - After relocating the repository, `install.sh` also adopts links that still point to `~/Documents/skills`.
 - Codex, Claude Code, and OpenCode are detected from their CLI commands. T3 Code is detected from its command or desktop app.

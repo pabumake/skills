@@ -1,4 +1,5 @@
 setup-matt-pocock-skills
+ask-matt
 grill-with-docs
 triage
 to-spec
@@ -18,3 +19,9 @@ wayfinder
 pr
 retro
 wizard
+grill-me
+handoff
+teach
+to-questionnaire
+wait-what
+writing-for-agents

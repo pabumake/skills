@@ -1,24 +1,25 @@
 # skills
 
-Personal agent skills for technical and defensive security work. The repository owns the general and security skills. A selected external baseline supplies the engineering workflow without keeping edited copies here.
+Personal agent skills for technical and defensive security work. The repository owns the general and security skills. An external baseline supplies Matt Pocock's engineering and productivity skills without keeping edited copies here.
 
 ## Catalog
 
 ### General
 
-- [`pbmk-skill-install`](./skills/general/pbmk-skill-install/SKILL.md): Install local skills and refresh the selected external engineering skills.
+- [`pbmk-skill-install`](./skills/general/pbmk-skill-install/SKILL.md): Install local skills and refresh the external skills.
 - [`ste`](./skills/general/ste/SKILL.md): Apply ASD-STE100 Simplified Technical English rules.
 - [`unslop`](./skills/general/unslop/SKILL.md): Remove common AI-writing patterns.
 
-### External engineering baseline
+### External Matt Pocock skills
 
-The installer selects 20 original skills from [`mattpocock/skills`](https://github.com/mattpocock/skills): 19 engineering skills and the `grilling` productivity skill used by `grill-with-docs`.
+The installer selects all 27 skills listed in the [upstream README](https://github.com/mattpocock/skills): 20 engineering skills and 7 productivity skills.
 
-- Workflow: `setup-matt-pocock-skills`, `grill-with-docs`, `triage`, `to-spec`, `to-tickets`, `implement`, `implement-spec`
+- Workflow: `setup-matt-pocock-skills`, `ask-matt`, `grill-with-docs`, `triage`, `to-spec`, `to-tickets`, `implement`, `implement-spec`
 - Disciplines: `grilling`, `domain-modeling`, `tdd`, `code-review`, `codebase-design`, `diagnosing-bugs`, `prototype`, `research`
 - Extended engineering: `improve-codebase-architecture`, `wayfinder`, `pr`, `retro`, `wizard`
+- Productivity: `grill-me`, `handoff`, `teach`, `to-questionnaire`, `wait-what`, `writing-for-agents`
 
-`ask-matt` is excluded because it routes to productivity skills outside this baseline. Other upstream productivity skills are also excluded.
+Upstream `misc`, `in-progress`, and `deprecated` skills are outside the README skillset.
 
 ### Security
 
@@ -52,7 +53,7 @@ The installer detects supported tools before it writes anything:
 
 Local skills are discovered recursively under promoted categories, then linked by skill name directly into each destination. Before linking, the installer migrates repository-owned links from the old flat layout and removes repository-owned links from obsolete destinations or retired skills.
 
-After local installation succeeds, the installer uses the latest `skills` CLI to check the 20 selected Matt Pocock skills against the current upstream repository. It skips unchanged skills, updates changed skills, and adds missing skills. Skills recorded against an old pinned commit are reinstalled from the current source once. It removes explicitly retired skills only when the global skill lock attributes them to `mattpocock/skills`. It never requests the whole upstream repository or updates unrelated global skills. Existing external names are refreshed only when the global skill lock attributes them to `mattpocock/skills`; real directories and foreign symlinks are otherwise preserved as conflicts.
+After local installation succeeds, the installer uses the latest `skills` CLI to check the 27 selected Matt Pocock skills against the current upstream repository. It skips unchanged skills, updates changed skills, and adds missing skills. Skills recorded against an old pinned commit are reinstalled from the current source once. It removes explicitly retired skills only when the global skill lock attributes them to `mattpocock/skills`. It does not update unrelated global skills. Existing external names are refreshed only when the global skill lock attributes them to `mattpocock/skills`; real directories and foreign symlinks are otherwise preserved as conflicts.
 
 The external phase validates the source and installed `SKILL.md` files. It does not pin or validate an upstream commit. A network, npm, CLI, or validation failure returns a nonzero status. Local changes made before that failure remain applied.
 
@@ -71,7 +72,7 @@ git -C ~/src/skills pull
 ~/src/skills/install.sh
 ```
 
-The upstream source and CLI use their latest versions. `install.sh` limits the update check to the 20 selected skills and repairs missing installations.
+The upstream source and CLI use their latest versions. `install.sh` limits the update check to the 27 selected skills and repairs missing installations. When the upstream README adds a skill, add its name to the baseline file before reinstalling.
 
 Start a new Codex session or restart Claude Code and OpenCode after installation.
 

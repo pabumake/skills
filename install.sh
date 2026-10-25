@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install local skills and the pinned external engineering baseline.
+# Install local skills and the README-listed external Matt Pocock skills.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
