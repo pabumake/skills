@@ -2,6 +2,32 @@
 # Install local skills and the README-listed external Matt Pocock skills.
 set -euo pipefail
 
+DRY_RUN=false
+DEDUPLICATE_HERMES=false
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --deduplicate-hermes-imports) DEDUPLICATE_HERMES=true ;;
+        --help|-h)
+            echo "Usage: install.sh [--dry-run] [--deduplicate-hermes-imports]"
+            echo "Detect installed tools, link local skills, and refresh the external baseline."
+            echo "Dry run performs no writes or network requests."
+            echo "Deduplication backs up identical Hermes imports; differing imports stay local."
+            exit 0 ;;
+        *) echo "Unknown option: $arg" >&2; exit 1 ;;
+    esac
+done
+
+run() {
+    if $DRY_RUN; then
+        printf '  would run:'
+        printf ' %q' "$@"
+        printf '\n'
+    else
+        "$@"
+    fi
+}
+
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_ROOT="$REPO_ROOT/skills"
 LEGACY_REPO_ROOT="$HOME/Documents/skills"
@@ -152,7 +178,7 @@ migrate_repo_links() {
 
         skill_name="$(basename "$link")"
         if [[ "$target_kind" == "legacy" ]]; then
-            rm "$link"
+            run rm "$link"
             echo "  removed legacy: $target_name/$skill_name -> $current_target"
             removed_stale=$((removed_stale + 1))
             continue
@@ -160,12 +186,12 @@ migrate_repo_links() {
 
         if expected_target="$(promoted_skill_dir "$skill_name")"; then
             if [[ "$normalized_target" != "${expected_target%/}" ]]; then
-                ln -sfn "$expected_target" "$link"
+                run ln -sfn "$expected_target" "$link"
                 echo "  migrated: $target_name/$skill_name -> ${expected_target#"$SKILLS_ROOT"/}"
                 migrated=$((migrated + 1))
             fi
         else
-            rm "$link"
+            run rm "$link"
             echo "  removed stale: $target_name/$skill_name -> $current_target"
             removed_stale=$((removed_stale + 1))
         fi
@@ -192,7 +218,7 @@ install_for_target() {
         esac
     fi
 
-    if ! mkdir -p "$target_dir"; then
+    if ! run mkdir -p "$target_dir"; then
         echo "  conflict: could not create $target_dir"
         conflicts=$((conflicts + 1))
         return
@@ -210,7 +236,7 @@ install_for_target() {
                 echo "  unchanged: $skill_name ($skill_path)"
                 unchanged=$((unchanged + 1))
             elif is_repo_owned "${current_target%/}"; then
-                ln -sfn "$skill_dir" "$destination"
+                run ln -sfn "$skill_dir" "$destination"
                 echo "  updated: $skill_name -> $skill_path"
                 updated=$((updated + 1))
             else
@@ -221,7 +247,7 @@ install_for_target() {
             echo "  conflict: $destination already exists and is not a symlink"
             conflicts=$((conflicts + 1))
         else
-            ln -s "$skill_dir" "$destination"
+            run ln -s "$skill_dir" "$destination"
             echo "  linked: $skill_name -> $skill_path"
             linked=$((linked + 1))
         fi
@@ -235,6 +261,11 @@ install_cline_mcp() {
     echo ""
     echo "target: $variant_name"
     echo "  settings: $settings_file"
+
+    if $DRY_RUN; then
+        echo "  would merge the skills MCP entry"
+        return
+    fi
 
     if [[ ! -f "$CLINE_MCP_UPDATE_SCRIPT" ]]; then
         echo "  conflict: MCP update script not found at $CLINE_MCP_UPDATE_SCRIPT"
@@ -267,6 +298,7 @@ install_cline_mcp() {
 has_codex=false
 has_claude=false
 has_opencode=false
+has_hermes=false
 has_t3_code=false
 has_cline_vscode=false
 has_cline_vscodium=false
@@ -280,6 +312,7 @@ CLINE_MCP_UPDATE_SCRIPT="$REPO_ROOT/mcp-server/update_cline_mcp.py"
 command -v codex >/dev/null 2>&1 && has_codex=true
 command -v claude >/dev/null 2>&1 && has_claude=true
 command -v opencode >/dev/null 2>&1 && has_opencode=true
+command -v hermes >/dev/null 2>&1 && has_hermes=true
 
 if command -v t3 >/dev/null 2>&1 \
     || command -v t3-code >/dev/null 2>&1 \
@@ -301,6 +334,7 @@ echo ""
 $has_codex && echo "detected: Codex" || echo "skipped: Codex (command not found)"
 $has_claude && echo "detected: Claude Code" || echo "skipped: Claude Code (command not found)"
 $has_opencode && echo "detected: OpenCode" || echo "skipped: OpenCode (command not found)"
+$has_hermes && echo "detected: Hermes" || echo "skipped: Hermes (command not found)"
 $has_t3_code && echo "detected: T3 Code" || echo "skipped: T3 Code (command or desktop app not found)"
 $has_cline_vscode   && echo "detected: Cline (VS Code)"   || echo "skipped: Cline (VS Code) (settings file not found)"
 $has_cline_vscodium && echo "detected: Cline (VSCodium)"  || echo "skipped: Cline (VSCodium) (settings file not found)"
@@ -310,11 +344,24 @@ if [[ -n "$EXTRA_SKILLS_ROOT" ]]; then
         || echo "warning: EXTRA_SKILLS_ROOT set but not found ($EXTRA_SKILLS_ROOT)"
 fi
 
+if ! $has_codex && ! $has_claude && ! $has_opencode && ! $has_hermes && ! $has_t3_code \
+    && ! $has_cline_vscode && ! $has_cline_vscodium; then
+    echo "No supported AI tools detected; nothing was changed."
+    exit 0
+fi
+
+# A nonstandard shared directory is not discovered automatically by OpenCode.
+opencode_native=false
+if is_truthy "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}" || \
+    [[ "$AGENT_SKILLS_DIR" != "$HOME/.agents/skills" ]]; then
+    opencode_native=true
+fi
+
 echo ""
 echo "Migrating repository-owned links from the old layout"
 migrate_repo_links "Agent Skills" "$AGENT_SKILLS_DIR" "current"
 migrate_repo_links "Claude Code" "$CLAUDE_SKILLS_DIR" "current"
-if is_truthy "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}"; then
+if $opencode_native; then
     migrate_repo_links "OpenCode native" "$OPENCODE_SKILLS_DIR" "current"
 else
     migrate_repo_links "OpenCode native" "$OPENCODE_SKILLS_DIR" "legacy"
@@ -324,18 +371,19 @@ migrate_repo_links "Legacy Codex" "${CODEX_HOME:-$HOME/.codex}/skills" "legacy"
 needs_shared_agents=false
 $has_codex && needs_shared_agents=true
 $has_t3_code && needs_shared_agents=true
+$has_hermes && needs_shared_agents=true
 if $has_opencode \
     && ! is_truthy "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}"; then
     needs_shared_agents=true
 fi
 
 if $needs_shared_agents; then
-    install_for_target "Agent Skills (Codex/OpenCode)" "$AGENT_SKILLS_DIR"
+    install_for_target "Agent Skills (Codex/OpenCode/Hermes)" "$AGENT_SKILLS_DIR"
 fi
 if $has_claude || $has_t3_code; then
     install_for_target "Claude Code/T3 Claude provider" "$CLAUDE_SKILLS_DIR"
 fi
-if $has_opencode && is_truthy "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}"; then
+if $has_opencode && $opencode_native; then
     install_for_target "OpenCode native fallback" "$OPENCODE_SKILLS_DIR"
 fi
 
@@ -352,14 +400,8 @@ if $has_cline_vscode || $has_cline_vscodium; then
     echo "covered: Cline hot-reloads its MCP config — no restart needed."
 fi
 
-if ! $has_codex && ! $has_claude && ! $has_opencode && ! $has_t3_code \
-    && ! $has_cline_vscode && ! $has_cline_vscodium; then
-    echo ""
-    echo "No supported AI tools detected; nothing was linked."
-fi
-
 echo ""
-echo "Local skills done. Migrated: $migrated  Removed stale: $removed_stale  Linked: $linked  Updated: $updated  Unchanged: $unchanged  Conflicts: $conflicts"
+echo "Local skills ($($DRY_RUN && echo planned || echo applied)). Migrated: $migrated  Removed stale: $removed_stale  Linked: $linked  Updated: $updated  Unchanged: $unchanged  Conflicts: $conflicts"
 echo "Run ./cleanup.sh for an optional interactive audit."
 
 if [[ $conflicts -ne 0 ]]; then
@@ -381,16 +423,29 @@ add_external_agent() {
 $has_codex && add_external_agent "codex"
 $has_claude && add_external_agent "claude-code"
 $has_opencode && add_external_agent "opencode"
+# Codex is the skills CLI's shared-directory target, also consumed by Hermes.
+$has_hermes && add_external_agent "codex"
 if $has_t3_code; then
     add_external_agent "codex"
     add_external_agent "claude-code"
 fi
 
-if ! "$MATTPOCOCK_INSTALLER" "${external_agents[@]}"; then
+if $DRY_RUN; then
+    echo "Dry run: would check/install the selected Matt Pocock baseline for: ${external_agents[*]:-none}"
+    echo "Remote versions and post-install validation are deferred until apply."
+elif ! "$MATTPOCOCK_INSTALLER" ${external_agents[@]+"${external_agents[@]}"}; then
     echo "External baseline installation failed. Local skill changes remain applied." >&2
     exit 1
 fi
 
+if $has_hermes; then
+    hermes_args=(--shared-dir "$AGENT_SKILLS_DIR")
+    $DRY_RUN && hermes_args+=(--dry-run)
+    $DEDUPLICATE_HERMES && hermes_args+=(--deduplicate-imports)
+    python3 -B "$REPO_ROOT/scripts/configure-hermes-skills.py" "${hermes_args[@]}"
+fi
+
 $has_codex && echo "Start a new Codex session to load skill changes."
 $has_claude && echo "Restart Claude Code or reload its window to load skill changes."
-$has_opencode && echo "Restart OpenCode to load skill changes."
+$has_opencode && echo "OpenCode reloads skills automatically; use /reload if needed."
+echo "Skill setup complete."

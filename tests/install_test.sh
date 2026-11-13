@@ -2,6 +2,17 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Keep tool discovery and every default destination out of the developer's home.
+SUITE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pbmk-skills-suite.XXXXXX")"
+trap 'rm -rf "$SUITE_ROOT"' EXIT
+mkdir -p "$SUITE_ROOT/bin" "$SUITE_ROOT/home"
+for tool in node python3 rg; do
+    ln -s "$(command -v "$tool")" "$SUITE_ROOT/bin/$tool"
+done
+export HOME="$SUITE_ROOT/home"
+export PATH="$SUITE_ROOT/bin:/usr/bin:/bin"
+export TMPDIR="$SUITE_ROOT/"
+unset HERMES_HOME OPENCODE_DISABLE_EXTERNAL_SKILLS
 EXPECTED_SKILLS=(
     setup-matt-pocock-skills
     ask-matt
@@ -64,7 +75,7 @@ for arg in "${@:4}"; do
 done
 
 if [[ "$action" == "remove" ]]; then
-    node - "$XDG_STATE_HOME/skills/.skill-lock.json" "$AGENT_SKILLS_DIR" "$CLAUDE_CONFIG_DIR/skills" "${skills[@]}" <<'NODE'
+    node - "$XDG_STATE_HOME/skills/.skill-lock.json" "$HOME/.agents/skills" "$CLAUDE_CONFIG_DIR/skills" "${skills[@]}" <<'NODE'
 const fs = require('fs');
 const [lockPath, agentsDir, claudeDir, ...names] = process.argv.slice(2);
 const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
@@ -92,12 +103,12 @@ if [[ "$action" == "update" ]]; then
 fi
 
 for skill in "${skills[@]}"; do
-    if [[ -L "$AGENT_SKILLS_DIR/$skill" ]]; then
-        echo "fake npx refused a leftover symlink at $AGENT_SKILLS_DIR/$skill" >&2
+    if [[ -L "$HOME/.agents/skills/$skill" ]]; then
+        echo "fake npx refused a leftover symlink at $HOME/.agents/skills/$skill" >&2
         exit 41
     fi
-    mkdir -p "$AGENT_SKILLS_DIR/$skill" "$CLAUDE_CONFIG_DIR/skills/$skill"
-    printf -- '---\nname: %s\n---\n' "$skill" >"$AGENT_SKILLS_DIR/$skill/SKILL.md"
+    mkdir -p "$HOME/.agents/skills/$skill" "$CLAUDE_CONFIG_DIR/skills/$skill"
+    printf -- '---\nname: %s\n---\n' "$skill" >"$HOME/.agents/skills/$skill/SKILL.md"
     printf -- '---\nname: %s\n---\n' "$skill" >"$CLAUDE_CONFIG_DIR/skills/$skill/SKILL.md"
 done
 
@@ -122,7 +133,7 @@ EOF
 test_root_installer_adds_selected_baseline() {
     local test_root fake_bin output status args skill arg skill_flag_count
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-install-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-install-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     mkdir -p "$fake_bin"
@@ -179,7 +190,7 @@ test_root_installer_adds_selected_baseline() {
 test_foreign_baseline_skill_is_preserved() {
     local test_root fake_bin output status
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-conflict-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-conflict-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     mkdir -p "$fake_bin" "$test_root/agents/skills/code-review"
@@ -216,7 +227,7 @@ EOF
 test_foreign_lock_entry_is_preserved() {
     local test_root fake_bin output status
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-lock-conflict-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-lock-conflict-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     mkdir -p "$fake_bin" "$test_root/state/skills"
@@ -249,7 +260,7 @@ EOF
 test_external_failure_reports_partial_install() {
     local test_root fake_bin output status skill
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-failure-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-failure-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     mkdir -p "$fake_bin"
@@ -284,7 +295,7 @@ test_external_failure_reports_partial_install() {
 test_false_success_fails_post_install_validation() {
     local test_root fake_bin output status
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-validation-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-validation-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     mkdir -p "$fake_bin"
@@ -312,7 +323,7 @@ test_false_success_fails_post_install_validation() {
 test_retired_links_are_replaced_before_upstream_install() {
     local test_root fake_bin output status skill retired_skill
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-migration-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-migration-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     retired_skill="$REPO_ROOT/skills/deprecated/mattpocock-adaptations/code-review"
@@ -343,7 +354,7 @@ test_retired_links_are_replaced_before_upstream_install() {
     [[ $status -eq 0 ]] || fail "retired-link migration failed: $output"
     assert_contains "$output" "removed stale: Agent Skills/code-review"
     assert_contains "$output" "removed stale: Claude Code/code-review"
-    [[ ! -L "$test_root/agents/skills/code-review" ]] || fail "retired agent link survived migration"
+    [[ "$(readlink "$test_root/agents/skills/code-review")" == "$HOME/.agents/skills/code-review" ]] || fail "retired agent link survived migration"
     [[ -f "$test_root/agents/skills/code-review/SKILL.md" ]] || fail "upstream replacement was not installed"
 
     echo "PASS: retired links are replaced before upstream installation"
@@ -352,7 +363,7 @@ test_retired_links_are_replaced_before_upstream_install() {
 test_repeated_install_skips_unchanged_upstream_skills() {
     local test_root fake_bin first_output second_output third_output status skill calls
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-repeat-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-repeat-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     mkdir -p "$fake_bin"
@@ -443,7 +454,7 @@ NODE
 test_failed_update_check_is_reported() {
     local test_root fake_bin first_output second_output status skill
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-update-failure-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-update-failure-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     mkdir -p "$fake_bin"
@@ -487,7 +498,7 @@ test_failed_update_check_is_reported() {
 test_retired_upstream_skill_is_removed_only_when_managed() {
     local test_root fake_bin output skill retired_name remove_calls
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-retired-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-retired-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     retired_name="resolving-merge-conflicts"
@@ -514,7 +525,8 @@ const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
 lock.skills[process.argv[3]] = { source: 'mattpocock/skills' };
 fs.writeFileSync(file, JSON.stringify(lock));
 NODE
-    mkdir -p "$test_root/agents/skills/$retired_name" "$test_root/claude/skills/$retired_name"
+    mkdir -p "$HOME/.agents/skills/$retired_name" "$test_root/claude/skills/$retired_name"
+    ln -s "$HOME/.agents/skills/$retired_name" "$test_root/agents/skills/$retired_name"
 
     output="$({
         PATH="$fake_bin:$PATH" \
@@ -556,7 +568,7 @@ NODE
 test_relocation_adopts_documents_links() {
     local test_root fake_bin fake_home old_root output status tool
 
-    test_root="$(mktemp -d /private/tmp/pbmk-skills-relocation-test.XXXXXX)"
+    test_root="$(mktemp -d "${TMPDIR}pbmk-skills-relocation-test.XXXXXX")"
     trap 'rm -rf "$test_root"' RETURN
     fake_bin="$test_root/bin"
     fake_home="$test_root/home"
@@ -607,13 +619,20 @@ test_relocation_adopts_documents_links() {
     echo "PASS: relocated installer adopts Documents links and preserves foreign links"
 }
 
-test_root_installer_adds_selected_baseline
-test_foreign_baseline_skill_is_preserved
-test_foreign_lock_entry_is_preserved
-test_external_failure_reports_partial_install
-test_false_success_fails_post_install_validation
-test_retired_links_are_replaced_before_upstream_install
-test_repeated_install_skips_unchanged_upstream_skills
-test_failed_update_check_is_reported
-test_retired_upstream_skill_is_removed_only_when_managed
-test_relocation_adopts_documents_links
+run_test() {
+    local home
+    home="$(mktemp -d "${TMPDIR}home.XXXXXX")"
+    (export HOME="$home"; "$1")
+    rm -rf "$home"
+}
+
+run_test test_root_installer_adds_selected_baseline
+run_test test_foreign_baseline_skill_is_preserved
+run_test test_foreign_lock_entry_is_preserved
+run_test test_external_failure_reports_partial_install
+run_test test_false_success_fails_post_install_validation
+run_test test_retired_links_are_replaced_before_upstream_install
+run_test test_repeated_install_skips_unchanged_upstream_skills
+run_test test_failed_update_check_is_reported
+run_test test_retired_upstream_skill_is_removed_only_when_managed
+run_test test_relocation_adopts_documents_links

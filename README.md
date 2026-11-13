@@ -48,10 +48,56 @@ The installer detects supported tools before it writes anything:
 |---|---|---|
 | Codex | `codex` on `PATH` | `${AGENT_SKILLS_DIR:-$HOME/.agents/skills}` |
 | Claude Code | `claude` on `PATH` | `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills` |
-| OpenCode | `opencode` on `PATH` | Shared `.agents/skills`, or its native config directory when external skills are disabled |
+| OpenCode | `opencode` on `PATH` | Shared `.agents/skills`; native links for disabled external discovery or a custom shared path |
+| Hermes | `hermes` on `PATH` | Shared `.agents/skills`, registered in `skills.external_dirs` |
 | T3 Code | CLI or desktop application | Shared `.agents/skills` plus Claude's skill directory for provider compatibility |
 
 Local skills are discovered recursively under promoted categories, then linked by skill name directly into each destination. Before linking, the installer migrates repository-owned links from the old flat layout and removes repository-owned links from obsolete destinations or retired skills.
+
+Preview installation without writes, CLI initialization, or network requests:
+
+```bash
+~/src/skills/install.sh --dry-run
+```
+
+The preview reports local link actions and the external update phase. It cannot
+determine remote version changes or validate future installations. With no
+supported tools installed, the installer exits before migration or linking.
+
+### Hermes and shared skills
+
+Hermes-only installations populate the same shared catalog. The external skills
+CLI uses its `codex` target to write that shared directory; Codex need not be
+installed. Hermes configuration uses its own `config get/set` commands and
+requires a version supporting `config get skills --json` and
+`skills.external_dirs`. Python 3 is required for the configuration helper.
+
+The helper preserves existing external directories and other settings.
+`HERMES_HOME` selects a custom home or profile. Otherwise, the helper reads
+`~/.hermes/active_profile`, falling back to the default profile. It prints the
+selected home before configuring it. Repeat the installation with another
+`HERMES_HOME` to configure another profile.
+
+Hermes-local skills override shared ones. Installation reports those overrides
+and compares complete directories, including support files and executable bits.
+To back up identical copies imported from Claude Code:
+
+```bash
+~/src/skills/install.sh --dry-run --deduplicate-hermes-imports
+~/src/skills/install.sh --deduplicate-hermes-imports
+```
+
+Only verified identical ordinary directories under `skills/claude-code-imports`
+are moved to `skill-import-backups` inside the selected Hermes home. Differing
+imports and foreign links are retained. Merge useful local changes before
+retiring a differing override. Shared directories remain writable by Hermes
+when filesystem permissions permit it.
+
+`AGENT_SKILLS_DIR` can select a nonstandard shared directory. Hermes registers
+the resolved path; OpenCode also receives native-directory links because it
+does not automatically discover arbitrary shared locations. The external CLI
+always stores its canonical copies in `~/.agents/skills`; the installer links
+those copies into alternate destinations and preserves conflicting local copies.
 
 After local installation succeeds, the installer uses the latest `skills` CLI to check the 27 selected Matt Pocock skills against the current upstream repository. It skips unchanged skills, updates changed skills, and adds missing skills. Skills recorded against an old pinned commit are reinstalled from the current source once. It removes explicitly retired skills only when the global skill lock attributes them to `mattpocock/skills`. It does not update unrelated global skills. Existing external names are refreshed only when the global skill lock attributes them to `mattpocock/skills`; real directories and foreign symlinks are otherwise preserved as conflicts.
 
@@ -74,7 +120,9 @@ git -C ~/src/skills pull
 
 The upstream source and CLI use their latest versions. `install.sh` limits the update check to the 27 selected skills and repairs missing installations. When the upstream README adds a skill, add its name to the baseline file before reinstalling.
 
-Start a new Codex session or restart Claude Code and OpenCode after installation.
+Start a new Codex session or restart Claude Code after installation. OpenCode
+reloads skills automatically; use `/reload` if needed. In Hermes, verify the
+catalog with `hermes skills list`; retained local overrides still take precedence.
 
 ## Use a skill
 

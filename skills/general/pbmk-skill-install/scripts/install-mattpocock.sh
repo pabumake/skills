@@ -54,6 +54,9 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
 fi
 
 AGENT_SKILLS_DIR="${AGENT_SKILLS_DIR:-$HOME/.agents/skills}"
+# The upstream CLI always installs universal skills here; it does not honor
+# AGENT_SKILLS_DIR or OPENCODE_CONFIG_DIR. Link our alternate destinations below.
+CANONICAL_SKILLS_DIR="$HOME/.agents/skills"
 CLAUDE_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
 OPENCODE_BASE_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 OPENCODE_SKILLS_DIR="$OPENCODE_BASE_DIR/skills"
@@ -61,7 +64,7 @@ OPENCODE_SKILLS_DIR="$OPENCODE_BASE_DIR/skills"
 if [[ -n "${XDG_STATE_HOME:-}" ]]; then
     GLOBAL_SKILL_LOCK="$XDG_STATE_HOME/skills/.skill-lock.json"
 else
-    GLOBAL_SKILL_LOCK="$(dirname "$AGENT_SKILLS_DIR")/.skill-lock.json"
+    GLOBAL_SKILL_LOCK="$HOME/.agents/.skill-lock.json"
 fi
 
 managed_skills=()
@@ -121,7 +124,8 @@ is_truthy() {
     esac
 }
 
-target_dirs=("$AGENT_SKILLS_DIR")
+target_dirs=("$CANONICAL_SKILLS_DIR")
+link_dirs=()
 add_target_dir() {
     local requested="$1"
     local existing
@@ -132,15 +136,48 @@ add_target_dir() {
     target_dirs+=("$requested")
 }
 
+if [[ "$AGENT_SKILLS_DIR" != "$CANONICAL_SKILLS_DIR" ]]; then
+    add_target_dir "$AGENT_SKILLS_DIR"
+    link_dirs+=("$AGENT_SKILLS_DIR")
+fi
 for agent in "$@"; do
     case "$agent" in
         claude-code) add_target_dir "$CLAUDE_SKILLS_DIR" ;;
         opencode)
-            if is_truthy "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}"; then
+            if is_truthy "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}" || \
+                [[ "$AGENT_SKILLS_DIR" != "$HOME/.agents/skills" ]]; then
                 add_target_dir "$OPENCODE_SKILLS_DIR"
+                link_dirs+=("$OPENCODE_SKILLS_DIR")
             fi
             ;;
     esac
+done
+
+# Alias destinations must be absent or already point to the canonical skill.
+# A lock entry identifies the upstream skill, not an unrelated local copy.
+for target_dir in "${link_dirs[@]-}"; do
+    [[ -n "$target_dir" ]] || continue
+    for skill_name in "${BASELINE_SKILLS[@]}"; do
+        destination="$target_dir/$skill_name"
+        if [[ -e "$destination" || -L "$destination" ]]; then
+            if ! node - "$destination" "$CANONICAL_SKILLS_DIR/$skill_name" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const [link, target] = process.argv.slice(2);
+let matches = false;
+try {
+  matches = fs.realpathSync(link) === fs.realpathSync(target);
+} catch {
+  try { matches = path.resolve(path.dirname(link), fs.readlinkSync(link)) === path.resolve(target); } catch {}
+}
+process.exit(matches ? 0 : 1);
+NODE
+            then
+                echo "external preflight error: foreign conflict at alternate skill path: $destination" >&2
+                exit 1
+            fi
+        fi
+    done
 done
 
 preflight_errors=0
@@ -237,12 +274,30 @@ if [[ ${#add_skills[@]} -gt 0 ]]; then
         --yes
 fi
 
+for target_dir in "${link_dirs[@]-}"; do
+    [[ -n "$target_dir" ]] || continue
+    mkdir -p "$target_dir"
+    for skill_name in "${BASELINE_SKILLS[@]}"; do
+        destination="$target_dir/$skill_name"
+        if [[ ! -e "$destination" && ! -L "$destination" ]]; then
+            ln -s "$CANONICAL_SKILLS_DIR/$skill_name" "$destination"
+        fi
+    done
+done
+
 for retired_name in "${RETIRED_SKILLS[@]-}"; do
     [[ -n "$retired_name" ]] || continue
     if is_managed_skill "$retired_name"; then
         echo "  removing retired skill: $retired_name"
         npx --yes "skills@$SKILLS_CLI_VERSION" remove \
             --global --yes "$retired_name"
+        for target_dir in "${link_dirs[@]-}"; do
+            [[ -n "$target_dir" ]] || continue
+            destination="$target_dir/$retired_name"
+            if [[ -L "$destination" && "$(readlink "$destination")" == "$CANONICAL_SKILLS_DIR/$retired_name" ]]; then
+                rm "$destination"
+            fi
+        done
         if node - "$GLOBAL_SKILL_LOCK" "$retired_name" <<'NODE'
 const fs = require('fs');
 const lock = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
